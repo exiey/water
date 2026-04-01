@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   ScrollView,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { FontAwesome6 } from '@expo/vector-icons';
-import RNSSE from 'react-native-sse';
+import EventSource from 'react-native-sse';
 import { useTheme } from '@/hooks/useTheme';
 import { Screen } from '@/components/Screen';
 import { ThemedText } from '@/components/ThemedText';
@@ -36,12 +36,25 @@ export default function AIScreen() {
   const [isTyping, setIsTyping] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const messageIdRef = useRef(0);
+  const currentSSERef = useRef<EventSource | null>(null);
 
   // 生成唯一ID
   const generateId = () => {
     messageIdRef.current += 1;
     return messageIdRef.current;
   };
+
+  // 关闭当前 SSE 连接
+  const closeCurrentSSE = useCallback(() => {
+    if (currentSSERef.current) {
+      try {
+        currentSSERef.current.close();
+      } catch (e) {
+        // ignore
+      }
+      currentSSERef.current = null;
+    }
+  }, []);
 
   // 加载对话历史
   const loadHistory = async () => {
@@ -77,6 +90,9 @@ export default function AIScreen() {
     const messageText = text || inputText.trim();
     if (!messageText || isTyping) return;
 
+    // 关闭之前的 SSE 连接
+    closeCurrentSSE();
+
     setInputText('');
     setIsTyping(true);
 
@@ -108,7 +124,7 @@ export default function AIScreen() {
        * Body 参数：message: string, include_context?: boolean
        */
       const url = `${EXPO_PUBLIC_BACKEND_BASE_URL}/api/v1/ai/chat`;
-      const sse = new RNSSE(url, {
+      const sse = new EventSource(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -116,10 +132,14 @@ export default function AIScreen() {
         body: JSON.stringify({ message: messageText, include_context: true }),
       });
 
+      // 保存当前 SSE 连接
+      currentSSERef.current = sse;
+
       sse.addEventListener('message', (event) => {
         const data = event.data || '';
         if (data === '[DONE]') {
           sse.close();
+          currentSSERef.current = null;
           setIsTyping(false);
           return;
         }
@@ -127,6 +147,7 @@ export default function AIScreen() {
         if (data.startsWith('[ERROR]')) {
           console.error('AI响应错误:', data);
           sse.close();
+          currentSSERef.current = null;
           setIsTyping(false);
           return;
         }
@@ -144,10 +165,12 @@ export default function AIScreen() {
       sse.addEventListener('error', (error) => {
         console.error('SSE错误:', error);
         sse.close();
+        currentSSERef.current = null;
         setIsTyping(false);
       });
     } catch (error) {
       console.error('发送消息失败:', error);
+      currentSSERef.current = null;
       setIsTyping(false);
     }
   };
