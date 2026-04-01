@@ -264,7 +264,7 @@ importers:
         version: 2.8.6
       coze-coding-dev-sdk:
         specifier: ^0.7.17
-        version: 0.7.17(openai@6.33.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
+        version: 0.7.17(openai@6.33.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0)
       dayjs:
         specifier: ^1.11.19
         version: 1.11.19
@@ -286,9 +286,6 @@ importers:
       pg:
         specifier: ^8.16.3
         version: 8.17.2
-      ws:
-        specifier: ^8.20.0
-        version: 8.20.0
       zod:
         specifier: ^4.2.1
         version: 4.3.6
@@ -5981,18 +5978,6 @@ packages:
       utf-8-validate:
         optional: true
 
-  ws@8.20.0:
-    resolution: {integrity: sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   xcode@3.0.1:
     resolution: {integrity: sha512-kCz5k7J7XbJtjABOvkc5lJmkiDh8VhjVCGNiqdKCscmVpdVUpEAyXv1xmCLkQJ5dsHqx3IPO4XW+NTDhU/fatA==}
     engines: {node: '>=10.0.0'}
@@ -7401,7 +7386,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@langchain/core@1.1.36(openai@6.33.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)':
+  '@langchain/core@1.1.36(openai@6.33.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0)':
     dependencies:
       '@cfworker/json-schema': 4.1.1
       '@standard-schema/spec': 1.1.0
@@ -7409,7 +7394,7 @@ snapshots:
       camelcase: 6.3.0
       decamelize: 1.2.0
       js-tiktoken: 1.0.21
-      langsmith: 0.5.15(openai@6.33.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
+      langsmith: 0.5.15(openai@6.33.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0)
       mustache: 4.2.0
       p-queue: 6.6.2
       uuid: 11.1.0
@@ -7421,11 +7406,11 @@ snapshots:
       - openai
       - ws
 
-  '@langchain/openai@1.3.1(@langchain/core@1.1.36(openai@6.33.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0))(ws@8.20.0)':
+  '@langchain/openai@1.3.1(@langchain/core@1.1.36(openai@6.33.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0))(ws@8.19.0)':
     dependencies:
-      '@langchain/core': 1.1.36(openai@6.33.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
+      '@langchain/core': 1.1.36(openai@6.33.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0)
       js-tiktoken: 1.0.21
-      openai: 6.33.0(ws@8.20.0)(zod@4.3.6)
+      openai: 6.33.0(ws@8.19.0)(zod@4.3.6)
       zod: 4.3.6
     transitivePeerDependencies:
       - ws
@@ -7871,7 +7856,7 @@ snapshots:
       '@types/phoenix': 1.6.7
       '@types/ws': 8.18.1
       tslib: 2.8.1
-      ws: 8.20.0
+      ws: 8.19.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -8851,10 +8836,10 @@ snapshots:
       path-type: 4.0.0
       yaml: 1.10.2
 
-  coze-coding-dev-sdk@0.7.17(openai@6.33.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0):
+  coze-coding-dev-sdk@0.7.17(openai@6.33.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0):
     dependencies:
-      '@langchain/core': 1.1.36(openai@6.33.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
-      '@langchain/openai': 1.3.1(@langchain/core@1.1.36(openai@6.33.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0))(ws@8.20.0)
+      '@langchain/core': 1.1.36(openai@6.33.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0)
+      '@langchain/openai': 1.3.1(@langchain/core@1.1.36(openai@6.33.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0))(ws@8.19.0)
       '@supabase/supabase-js': 2.95.3
       axios: 1.14.0
       pg: 8.17.2
@@ -10853,7 +10838,7 @@ snapshots:
 
   lan-network@0.1.7: {}
 
-  langsmith@0.5.15(openai@6.33.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0):
+  langsmith@0.5.15(openai@6.33.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0):
     dependencies:
       '@types/uuid': 10.0.0
       chalk: 5.6.2
@@ -10862,8 +10847,8 @@ snapshots:
       semver: 7.7.4
       uuid: 10.0.0
     optionalDependencies:
-      openai: 6.33.0(ws@8.20.0)(zod@4.3.6)
-      ws: 8.20.0
+      openai: 6.33.0(ws@8.19.0)(zod@4.3.6)
+      ws: 8.19.0
 
   leven@3.1.0: {}
 
@@ -11383,9 +11368,9 @@ snapshots:
       is-docker: 2.2.1
       is-wsl: 2.2.0
 
-  openai@6.33.0(ws@8.20.0)(zod@4.3.6):
+  openai@6.33.0(ws@8.19.0)(zod@4.3.6):
     optionalDependencies:
-      ws: 8.20.0
+      ws: 8.19.0
       zod: 4.3.6
 
   optionator@0.9.4:
@@ -12784,8 +12769,6 @@ snapshots:
   ws@7.5.10: {}
 
   ws@8.19.0: {}
-
-  ws@8.20.0: {}
 
   xcode@3.0.1:
     dependencies:
