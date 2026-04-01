@@ -16,7 +16,7 @@ import { Screen } from '@/components/Screen';
 import { ThemedText } from '@/components/ThemedText';
 import { createStyles } from './styles';
 
-const EXPO_PUBLIC_BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL;
+const EXPO_PUBLIC_BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'https://d34b1e3c-093a-43e0-a7ea-d0685d47e5f0.dev.coze.site';
 
 interface Threshold {
   id: number;

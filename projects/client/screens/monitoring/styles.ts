@@ -62,6 +62,19 @@ export const createStyles = (theme: Theme) => {
     statusRed: {
       backgroundColor: '#EF4444',
     },
+    // 实时指示器
+    liveIndicator: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      marginLeft: 4,
+    },
+    liveDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: '#22C55E',
+    },
     // 区域标题
     sectionHeader: {
       flexDirection: 'row',

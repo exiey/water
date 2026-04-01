@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   ScrollView,
   View,
@@ -8,13 +8,18 @@ import { useFocusEffect } from 'expo-router';
 import { LineChart } from 'react-native-gifted-charts';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useTheme } from '@/hooks/useTheme';
+import { useWebSocket, getWebSocketUrl } from '@/hooks/useWebSocket';
 import { Screen } from '@/components/Screen';
 import { ThemedText } from '@/components/ThemedText';
 import { createStyles } from './styles';
 
-// 使用系统注入的后端 URL
-const BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || '';
+// 后端 URL
+const BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'https://d34b1e3c-093a-43e0-a7ea-d0685d47e5f0.dev.coze.site';
 
+// 轮询间隔
+const POLLING_INTERVAL = 5000;
+
+// 监测数据格式
 interface MonitoringData {
   id: number;
   water_flow: number;
@@ -28,197 +33,90 @@ interface MonitoringData {
   recorded_at: string;
 }
 
-interface MonitoringRealtimeMessage {
-  type: 'connected' | 'snapshot' | 'monitoring_update';
-  data?: MonitoringData;
-  timestamp: string;
-}
-
-function getMonitoringWebSocketUrl(baseUrl?: string): string | null {
-  if (!baseUrl) {
-    return null;
-  }
-
-  try {
-    const url = new URL(baseUrl);
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    url.pathname = '/ws/monitoring';
-    url.search = '';
-    url.hash = '';
-    return url.toString();
-  } catch (error) {
-    console.error('构建 WebSocket 地址失败:', error);
-    return null;
-  }
-}
-
-function mergeLatestData(previous: MonitoringData[], incoming: MonitoringData): MonitoringData[] {
-  if (previous.length === 0) {
-    return [incoming];
-  }
-
-  if (previous[0]?.id === incoming.id) {
-    return [incoming, ...previous.slice(1, 20)];
-  }
-
-  return [incoming, ...previous.filter(item => item.id !== incoming.id).slice(0, 19)];
-}
-
 export default function MonitoringScreen() {
   const { theme } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
   const [data, setData] = useState<MonitoringData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'polling' | 'disconnected'>('connecting');
+  const [connectionSource, setConnectionSource] = useState<'connecting' | 'websocket' | 'polling' | 'disconnected'>('connecting');
+  
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const websocketRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const screenActiveRef = useRef(false);
+  // WebSocket 连接
+  const wsUrl = getWebSocketUrl();
+  const { status: wsStatus, data: wsData } = useWebSocket(wsUrl);
 
-  const fetchData = useCallback(async (): Promise<boolean> => {
+  // 处理 WebSocket 数据
+  useEffect(() => {
+    if (wsData && wsStatus === 'connected') {
+      // 将新数据添加到列表顶部
+      setData(prev => {
+        if (prev.length === 0) return [wsData];
+        if (prev[0]?.id === wsData.id) return prev;
+        return [wsData, ...prev.slice(0, 19)];
+      });
+      setConnectionSource('websocket');
+      setLoading(false);
+    }
+  }, [wsData, wsStatus]);
+
+  // 从云端获取数据（HTTP 轮询备用方案）
+  const fetchFromCloud = useCallback(async () => {
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/v1/monitoring?limit=20`);
+      const response = await fetch(`${BACKEND_BASE_URL}/api/v1/monitoring/latest`);
       const result = await response.json();
-      if (result.success) {
-        setData(result.data);
-        return true;
+      if (result.success && result.data) {
+        setData(prev => {
+          if (prev.length === 0) return [result.data];
+          if (prev[0]?.id === result.data.id) return prev;
+          return [result.data, ...prev.slice(0, 19)];
+        });
+        setConnectionSource('polling');
       }
     } catch (error) {
-      console.error('获取监测数据失败:', error);
-    }
-
-    return false;
-  }, []);
-
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    await fetchData();
-    setLoading(false);
-  }, [fetchData]);
-
-  const stopPolling = useCallback(() => {
-    if (!pollingIntervalRef.current) {
-      return;
-    }
-
-    clearInterval(pollingIntervalRef.current);
-    pollingIntervalRef.current = null;
-  }, []);
-
-  const startPolling = useCallback(() => {
-    stopPolling();
-    setConnectionStatus('polling');
-
-    pollingIntervalRef.current = setInterval(async () => {
-      try {
-        const response = await fetch(`${BACKEND_BASE_URL}/api/v1/monitoring/latest`);
-        const result = await response.json();
-        if (result.success && result.data) {
-          setData(previous => mergeLatestData(previous, result.data));
-          setConnectionStatus('polling');
-        } else {
-          setConnectionStatus('disconnected');
-        }
-      } catch (error) {
-        console.error('轮询最新数据失败:', error);
-        setConnectionStatus('disconnected');
-      }
-    }, 5000);
-  }, [stopPolling]);
-
-  const clearReconnectTimer = useCallback(() => {
-    if (!reconnectTimeoutRef.current) {
-      return;
-    }
-
-    clearTimeout(reconnectTimeoutRef.current);
-    reconnectTimeoutRef.current = null;
-  }, []);
-
-  const closeWebSocket = useCallback(() => {
-    const socket = websocketRef.current;
-    websocketRef.current = null;
-    if (socket) {
-      socket.close();
+      console.error('Failed to fetch from cloud:', error);
+      setConnectionSource('disconnected');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  function scheduleReconnect(): void {
-    if (!screenActiveRef.current || reconnectTimeoutRef.current) {
-      return;
+  // WebSocket 断开时启用轮询
+  useEffect(() => {
+    if (wsStatus === 'connected') {
+      // WebSocket 已连接，停止轮询
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      setConnectionSource('websocket');
+    } else if (wsStatus === 'disconnected' || wsStatus === 'error') {
+      // WebSocket 断开，启动轮询
+      setConnectionSource('polling');
+      if (!pollingRef.current) {
+        fetchFromCloud();
+        pollingRef.current = setInterval(fetchFromCloud, POLLING_INTERVAL);
+      }
     }
-
-    reconnectTimeoutRef.current = setTimeout(() => {
-      reconnectTimeoutRef.current = null;
-      if (screenActiveRef.current) {
-        connectWebSocket();
-      }
-    }, 3000);
-  }
-
-  function connectWebSocket(): void {
-    const url = getMonitoringWebSocketUrl(BACKEND_BASE_URL);
-    if (!url) {
-      startPolling();
-      return;
-    }
-
-    clearReconnectTimer();
-    closeWebSocket();
-    setConnectionStatus('connecting');
-
-    const socket = new WebSocket(url);
-    websocketRef.current = socket;
-
-    socket.onopen = () => {
-      stopPolling();
-      setConnectionStatus('connected');
-    };
-
-    socket.onmessage = event => {
-      try {
-        const message = JSON.parse(event.data) as MonitoringRealtimeMessage;
-        if ((message.type === 'snapshot' || message.type === 'monitoring_update') && message.data) {
-          setData(previous => mergeLatestData(previous, message.data as MonitoringData));
-        }
-      } catch (error) {
-        console.error('解析 WebSocket 数据失败:', error);
+    
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
       }
     };
+  }, [wsStatus, fetchFromCloud]);
 
-    socket.onerror = error => {
-      console.error('WebSocket 连接失败:', error);
-    };
-
-    socket.onclose = () => {
-      if (websocketRef.current === socket) {
-        websocketRef.current = null;
-      }
-
-      if (!screenActiveRef.current) {
-        return;
-      }
-
-      startPolling();
-      scheduleReconnect();
-    };
-  }
-
+  // 首次加载
   useFocusEffect(
     useCallback(() => {
-      screenActiveRef.current = true;
-      void loadAll();
-      connectWebSocket();
-
-      return () => {
-        screenActiveRef.current = false;
-        clearReconnectTimer();
-        stopPolling();
-        closeWebSocket();
-      };
-    }, [clearReconnectTimer, closeWebSocket, loadAll, stopPolling])
+      // 如果 WebSocket 未连接，立即获取一次数据
+      if (wsStatus !== 'connected') {
+        fetchFromCloud();
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
   );
 
   const chartData = useMemo(() => {
@@ -247,6 +145,38 @@ export default function MonitoringScreen() {
   }, [data]);
 
   const latestData = data[0];
+
+  // 渲染连接状态
+  const renderConnectionStatus = () => {
+    const isConnected = connectionSource === 'websocket' || connectionSource === 'polling';
+    const statusColor = connectionSource === 'websocket' 
+      ? '#22C55E' 
+      : connectionSource === 'polling' 
+        ? '#EAB308' 
+        : '#EF4444';
+    
+    const statusText = connectionSource === 'websocket'
+      ? '实时连接'
+      : connectionSource === 'polling'
+        ? '轮询模式'
+        : connectionSource === 'connecting'
+          ? '连接中'
+          : '离线';
+
+    return (
+      <View style={styles.connectionStatus}>
+        <View style={[styles.statusIndicator, { backgroundColor: statusColor }]} />
+        <ThemedText variant="tiny" color={statusColor}>
+          {statusText}
+        </ThemedText>
+        {connectionSource === 'websocket' && (
+          <View style={styles.liveIndicator}>
+            <View style={styles.liveDot} />
+          </View>
+        )}
+      </View>
+    );
+  };
 
   if (loading) {
     return (
@@ -277,41 +207,7 @@ export default function MonitoringScreen() {
                   大坝监测系统
                 </ThemedText>
               </View>
-              <View
-                style={[
-                  styles.connectionStatus,
-                  connectionStatus === 'connected' && styles.connected,
-                  connectionStatus === 'polling' && styles.polling,
-                  connectionStatus === 'disconnected' && styles.disconnected,
-                ]}
-              >
-                <View
-                  style={[
-                    styles.statusIndicator,
-                    connectionStatus === 'connected' && styles.statusGreen,
-                    connectionStatus === 'polling' && styles.statusYellow,
-                    connectionStatus === 'disconnected' && styles.statusRed,
-                  ]}
-                />
-                <ThemedText
-                  variant="tiny"
-                  color={
-                    connectionStatus === 'connected'
-                      ? '#22C55E'
-                      : connectionStatus === 'polling'
-                        ? '#EAB308'
-                        : '#EF4444'
-                  }
-                >
-                  {connectionStatus === 'connected'
-                    ? '实时'
-                    : connectionStatus === 'polling'
-                      ? '轮询'
-                      : connectionStatus === 'connecting'
-                        ? '连接中'
-                        : '离线'}
-                </ThemedText>
-              </View>
+              {renderConnectionStatus()}
             </View>
             <View style={styles.divider} />
           </View>
