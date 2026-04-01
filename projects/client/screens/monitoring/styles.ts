@@ -161,37 +161,6 @@ export const createStyles = (theme: Theme) => {
     chart: {
       height: 180,
     },
-    // 操作按钮
-    actionButtons: {
-      flexDirection: 'row',
-      gap: Spacing.md,
-      marginTop: Spacing.lg,
-    },
-    refreshButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: '#111111',
-      borderRadius: BorderRadius.lg,
-      paddingVertical: Spacing.lg,
-      paddingHorizontal: Spacing.xl,
-      gap: Spacing.sm,
-      flex: 1,
-    },
-    syncButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: '#059669',
-      borderRadius: BorderRadius.lg,
-      paddingVertical: Spacing.lg,
-      paddingHorizontal: Spacing.xl,
-      gap: Spacing.sm,
-      flex: 1,
-    },
-    syncButtonDisabled: {
-      backgroundColor: '#9CA3AF',
-    },
     // 加载状态
     loadingContainer: {
       flex: 1,

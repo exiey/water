@@ -2,9 +2,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
   View,
-  TouchableOpacity,
   ActivityIndicator,
-  RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { LineChart } from 'react-native-gifted-charts';
@@ -14,7 +12,8 @@ import { Screen } from '@/components/Screen';
 import { ThemedText } from '@/components/ThemedText';
 import { createStyles } from './styles';
 
-const EXPO_PUBLIC_BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL;
+// 使用系统注入的后端 URL
+const BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || '';
 
 interface MonitoringData {
   id: number;
@@ -71,8 +70,6 @@ export default function MonitoringScreen() {
 
   const [data, setData] = useState<MonitoringData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'polling' | 'disconnected'>('connecting');
 
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -82,7 +79,7 @@ export default function MonitoringScreen() {
 
   const fetchData = useCallback(async (): Promise<boolean> => {
     try {
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_BASE_URL}/api/v1/monitoring?limit=20`);
+      const response = await fetch(`${BACKEND_BASE_URL}/api/v1/monitoring?limit=20`);
       const result = await response.json();
       if (result.success) {
         setData(result.data);
@@ -116,7 +113,7 @@ export default function MonitoringScreen() {
 
     pollingIntervalRef.current = setInterval(async () => {
       try {
-        const response = await fetch(`${EXPO_PUBLIC_BACKEND_BASE_URL}/api/v1/monitoring/latest`);
+        const response = await fetch(`${BACKEND_BASE_URL}/api/v1/monitoring/latest`);
         const result = await response.json();
         if (result.success && result.data) {
           setData(previous => mergeLatestData(previous, result.data));
@@ -162,7 +159,7 @@ export default function MonitoringScreen() {
   }
 
   function connectWebSocket(): void {
-    const url = getMonitoringWebSocketUrl(EXPO_PUBLIC_BACKEND_BASE_URL);
+    const url = getMonitoringWebSocketUrl(BACKEND_BASE_URL);
     if (!url) {
       startPolling();
       return;
@@ -224,32 +221,6 @@ export default function MonitoringScreen() {
     }, [clearReconnectTimer, closeWebSocket, loadAll, stopPolling])
   );
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadAll();
-    setRefreshing(false);
-  };
-
-  const syncFromCloud = async () => {
-    setSyncing(true);
-    try {
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_BASE_URL}/api/v1/onenet/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        await loadAll();
-      } else {
-        console.error('云端同步失败:', result.error);
-      }
-    } catch (error) {
-      console.error('同步数据失败:', error);
-    }
-    setSyncing(false);
-  };
-
   const chartData = useMemo(() => {
     if (data.length === 0) {
       return { flow: [], level: [], tds: [] };
@@ -294,13 +265,6 @@ export default function MonitoringScreen() {
     <Screen backgroundColor={theme.backgroundRoot} statusBarStyle="dark">
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#111111"
-          />
-        }
       >
         <View style={styles.container}>
           <View style={styles.header}>
@@ -565,30 +529,6 @@ export default function MonitoringScreen() {
                 curved
               />
             </View>
-          </View>
-
-          <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.refreshButton} onPress={onRefresh}>
-              <FontAwesome6 name="rotate" size={14} color="#FFFFFF" />
-              <ThemedText variant="smallMedium" color="#FFFFFF">
-                刷新数据
-              </ThemedText>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.syncButton, syncing && styles.syncButtonDisabled]}
-              onPress={syncFromCloud}
-              disabled={syncing}
-            >
-              {syncing ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <FontAwesome6 name="cloud-arrow-down" size={14} color="#FFFFFF" />
-              )}
-              <ThemedText variant="smallMedium" color="#FFFFFF">
-                云端同步
-              </ThemedText>
-            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
