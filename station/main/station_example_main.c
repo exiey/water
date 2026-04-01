@@ -14,6 +14,7 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
+#include "mqtt_client.h"
 #include "nvs_flash.h"
 
 #include "lwip/err.h"
@@ -66,8 +67,74 @@ static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_FAIL_BIT      BIT1
 
 static const char *TAG = "wifi station";
+static const char *ONENET_BROKER_URI = "mqtt://183.230.40.96:1883";
+static const char *ONENET_CLIENT_ID = "esp8266_01";
+static const char *ONENET_USERNAME = "Z7Y6GY5MYy";
+static const char *ONENET_PASSWORD = "version=2018-10-31&res=products%2FZ7Y6GY5MYy%2Fdevices%2Fesp8266_01&et=1806547441&method=md5&sign=NOhTuuLFQ%2FWnU1mv4kozxw%3D%3D";
+static const char *ONENET_PROPERTY_TOPIC = "$sys/Z7Y6GY5MYy/esp8266_01/thing/property/post";
 
 static int s_retry_num = 0;
+static esp_mqtt_client_handle_t s_mqtt_client = NULL;
+
+static void onenet_publish_test_payload(void)
+{
+    static const char *payload =
+        "{\"id\":\"1775011477061\",\"version\":\"1.0\",\"params\":{"
+        "\"angle\":{\"value\":{\"pitch_angle\":12,\"roll_angle\":34,\"yaw_angle\":56}},"
+        "\"flow\":{\"value\":{\"total_flow\":654321,\"instant_flow\":321}},"
+        "\"lora_comm_status\":{\"value\":false},"
+        "\"tds_value\":{\"value\":888},"
+        "\"water_level\":{\"value\":23}"
+        "}}";
+
+    int msg_id = esp_mqtt_client_publish(s_mqtt_client, ONENET_PROPERTY_TOPIC, payload, 0, 1, 0);
+    ESP_LOGI(TAG, "published test payload to OneNET, msg_id=%d", msg_id);
+}
+
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    esp_mqtt_event_handle_t event = event_data;
+
+    switch ((esp_mqtt_event_id_t)event_id) {
+    case MQTT_EVENT_CONNECTED:
+        ESP_LOGI(TAG, "connected to OneNET MQTT broker");
+        onenet_publish_test_payload();
+        break;
+    case MQTT_EVENT_DISCONNECTED:
+        ESP_LOGW(TAG, "disconnected from OneNET MQTT broker");
+        break;
+    case MQTT_EVENT_PUBLISHED:
+        ESP_LOGI(TAG, "mqtt publish acknowledged, msg_id=%d", event->msg_id);
+        break;
+    case MQTT_EVENT_DATA:
+        ESP_LOGI(TAG, "mqtt topic=%.*s data=%.*s",
+                 event->topic_len, event->topic,
+                 event->data_len, event->data);
+        break;
+    case MQTT_EVENT_ERROR:
+        ESP_LOGE(TAG, "mqtt event error");
+        break;
+    default:
+        break;
+    }
+}
+
+static void onenet_mqtt_start(void)
+{
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .broker.address.uri = ONENET_BROKER_URI,
+        .credentials.client_id = ONENET_CLIENT_ID,
+        .credentials.username = ONENET_USERNAME,
+        .credentials.authentication.password = ONENET_PASSWORD,
+        .session.keepalive = 60,
+        .network.timeout_ms = 10000,
+        .network.reconnect_timeout_ms = 5000,
+    };
+
+    s_mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
+    ESP_ERROR_CHECK(esp_mqtt_client_register_event(s_mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_mqtt_client_start(s_mqtt_client));
+}
 
 
 static void event_handler(void* arg, esp_event_base_t event_base,
@@ -176,4 +243,5 @@ void app_main(void)
 
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
     wifi_init_sta();
+    onenet_mqtt_start();
 }
