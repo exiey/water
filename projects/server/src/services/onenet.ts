@@ -1,151 +1,193 @@
-import * as crypto from 'crypto';
+import crypto from 'node:crypto';
 
-const ONENET_API_BASE = 'https://iot-api.heclouds.com';
+const DEFAULT_API_BASE = 'https://iot-api.heclouds.com';
+const TOKEN_VERSION = '2018-10-31';
 
-interface OneNETPropertyValue {
-  value: unknown;
-  time?: string;
-}
+const DEFAULT_ONENET_CONFIG = {
+  productId: 'Z7Y6GY5MYy',
+  deviceId: 'esp8266_01',
+  accessKey: 'MWMJmQs1sbkfU7ENJdufrxOv3VHhHYlpK3vd7UWRRZU=',
+  deviceKey: 'akpwNWU1YXUzbFVOTGpybThaTktSaXNOSzBpQ2xZa3Y=',
+  apiBase: DEFAULT_API_BASE,
+} as const;
 
-interface OneNETPropertyData {
-  angle?: OneNETPropertyValue & {
-    value: {
-      pitch_angle: number;
-      roll_angle: number;
-      yaw_angle: number;
-    };
-  };
-  flow?: OneNETPropertyValue & {
-    value: {
-      total_flow: number;
-      instant_flow: number;
-    };
-  };
-  lora_comm_status?: OneNETPropertyValue & {
-    value: boolean;
-  };
-  tds_value?: OneNETPropertyValue & {
-    value: number;
-  };
-  water_level?: OneNETPropertyValue & {
-    value: number;
-  };
-}
+type OneNETPropertyItem = {
+  identifier: string;
+  time?: number;
+  value?: string | number | boolean | Record<string, unknown>;
+  data_type?: string;
+};
 
-interface OneNETConfig {
-  access_key: string;
-  product_id: string;
-  device_id: string;
-  device_key?: string;
-}
-
-interface OneNETAPIResponse {
+type OneNETPropertyResponse = {
   code: number;
+  data?: OneNETPropertyItem[];
   msg?: string;
   error?: string;
-  data?: Record<string, unknown>;
+  request_id?: string;
+};
+
+export type OneNETConfig = {
+  productId: string;
+  deviceId: string;
+  accessKey: string;
+  deviceKey?: string;
+  apiBase?: string;
+};
+
+export type MonitoringSnapshot = {
+  id: number;
+  water_flow: number;
+  total_flow: number;
+  water_level: number;
+  water_quality: number;
+  euler_angle_x: number;
+  euler_angle_y: number;
+  euler_angle_z: number;
+  lora_status: string;
+  recorded_at: string;
+  source: 'onenet_http';
+  raw_payload: OneNETPropertyResponse;
+};
+
+function getConfig(): OneNETConfig {
+  return {
+    productId: process.env.ONENET_PRODUCT_ID || DEFAULT_ONENET_CONFIG.productId,
+    deviceId: process.env.ONENET_DEVICE_ID || DEFAULT_ONENET_CONFIG.deviceId,
+    accessKey: process.env.ONENET_ACCESS_KEY || DEFAULT_ONENET_CONFIG.accessKey,
+    deviceKey: process.env.ONENET_DEVICE_KEY || DEFAULT_ONENET_CONFIG.deviceKey,
+    apiBase: process.env.ONENET_API_BASE || DEFAULT_ONENET_CONFIG.apiBase,
+  };
 }
 
-export function generateToken(config: OneNETConfig, expireHours = 24): string {
-  const { access_key, product_id, device_id } = config;
-  const et = Math.floor(Date.now() / 1000) + expireHours * 3600;
+function toNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  return 0;
+}
+
+function toBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+
+  if (typeof value === 'string') {
+    return ['1', 'true', 'on', 'yes'].includes(value.toLowerCase());
+  }
+
+  return false;
+}
+
+function toObject(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+export function buildOneNETToken(config: OneNETConfig, expireTs: number): string {
+  const resource = `products/${config.productId}`;
   const method = 'md5';
-  const version = '2018-10-31';
-  const res = `products/${product_id}/devices/${device_id}`;
+  const signContent = `${expireTs}\n${method}\n${resource}\n${TOKEN_VERSION}`;
+  const key = Buffer.from(config.accessKey, 'base64');
+  const sign = crypto.createHmac(method, key).update(signContent, 'utf8').digest('base64');
 
-  // OneNET v5 token signing string order is fixed.
-  const stringToSign = `${et}\n${method}\n${res}\n${version}`;
-  const accessKeyBuffer = Buffer.from(access_key, 'base64');
-  const sign = crypto
-    .createHmac('md5', accessKeyBuffer)
-    .update(stringToSign)
-    .digest('base64');
-
-  return `version=${version}&res=${encodeURIComponent(res)}&et=${et}&method=${method}&sign=${encodeURIComponent(sign)}`;
+  return [
+    `version=${TOKEN_VERSION}`,
+    `res=${encodeURIComponent(resource)}`,
+    `et=${expireTs}`,
+    `method=${method}`,
+    `sign=${encodeURIComponent(sign)}`,
+  ].join('&');
 }
 
-export async function getDeviceProperties(config: OneNETConfig): Promise<OneNETPropertyData | null> {
-  const token = generateToken(config);
-  const { product_id, device_id } = config;
-  const url = `${ONENET_API_BASE}/thing/${product_id}/${device_id}/property/last`;
+function normalizePropertyList(config: OneNETConfig, payload: OneNETPropertyResponse): MonitoringSnapshot {
+  const items = payload.data ?? [];
+  const map = new Map(items.map(item => [item.identifier, item]));
+  const angle = toObject(map.get('angle')?.value);
+  const flow = toObject(map.get('flow')?.value);
+  const latestTime = items.reduce((max, item) => Math.max(max, item.time ?? 0), 0);
+  const recordedAt = latestTime > 0 ? new Date(latestTime).toISOString() : new Date().toISOString();
 
-  console.log('Requesting OneNET API:', url);
+  return {
+    id: latestTime > 0 ? latestTime : Date.now(),
+    water_flow: toNumber(flow?.instant_flow),
+    total_flow: toNumber(flow?.total_flow),
+    water_level: toNumber(map.get('water_level')?.value),
+    water_quality: toNumber(map.get('tds_value')?.value),
+    euler_angle_x: toNumber(angle?.roll_angle),
+    euler_angle_y: toNumber(angle?.pitch_angle),
+    euler_angle_z: toNumber(angle?.yaw_angle),
+    lora_status: toBoolean(map.get('lora_comm_status')?.value) ? 'connected' : 'disconnected',
+    recorded_at: recordedAt,
+    source: 'onenet_http',
+    raw_payload: payload,
+  };
+}
+
+export async function fetchLatestOneNETSnapshot(): Promise<MonitoringSnapshot | null> {
+  const config = getConfig();
+  if (!config.productId || !config.deviceId || !config.accessKey) {
+    console.error('[onenet] Missing required config');
+    return null;
+  }
+
+  const expireTs = Math.floor(Date.now() / 1000) + 3600;
+  const authorization = buildOneNETToken(config, expireTs);
+  const url = new URL('/thingmodel/query-device-property', config.apiBase || DEFAULT_API_BASE);
+
+  url.searchParams.set('product_id', config.productId);
+  url.searchParams.set('device_name', config.deviceId);
+
+  console.log('[onenet] query url:', url.toString());
 
   const response = await fetch(url, {
     method: 'GET',
     headers: {
-      Authorization: token,
+      Authorization: authorization,
       Accept: 'application/json',
     },
   });
 
-  console.log('OneNET API status:', response.status);
+  const payload = (await response.json()) as OneNETPropertyResponse;
+  console.log('[onenet] query status:', response.status);
+  console.log('[onenet] query payload:', JSON.stringify(payload, null, 2));
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('OneNET API error:', errorText);
-    throw new Error(`OneNET API error (${response.status}): ${errorText}`);
-  }
-
-  const result = await response.json() as OneNETAPIResponse;
-  console.log('OneNET API result:', JSON.stringify(result, null, 2));
-
-  if (result.code !== 0) {
-    throw new Error(`OneNET API returned code=${result.code}, msg=${result.msg || result.error}`);
-  }
-
-  return parseOneNETProperties(result.data || {});
-}
-
-function parseOneNETProperties(data: Record<string, unknown>): OneNETPropertyData | null {
-  if (!data) {
+  if (!response.ok || payload.code !== 0 || !payload.data) {
+    console.error('[onenet] query-device-property failed:', payload);
     return null;
   }
 
-  const result: OneNETPropertyData = {};
-
-  for (const [key, value] of Object.entries(data)) {
-    if (key === 'angle' && typeof value === 'object' && value !== null) {
-      result.angle = value as OneNETPropertyData['angle'];
-    } else if (key === 'flow' && typeof value === 'object' && value !== null) {
-      result.flow = value as OneNETPropertyData['flow'];
-    } else if (key === 'lora_comm_status' && typeof value === 'object' && value !== null) {
-      result.lora_comm_status = value as OneNETPropertyData['lora_comm_status'];
-    } else if (key === 'tds_value' && typeof value === 'object' && value !== null) {
-      result.tds_value = value as OneNETPropertyData['tds_value'];
-    } else if (key === 'water_level' && typeof value === 'object' && value !== null) {
-      result.water_level = value as OneNETPropertyData['water_level'];
-    }
-  }
-
-  return result;
+  return normalizePropertyList(config, payload);
 }
 
-export function convertToMonitoringData(properties: OneNETPropertyData) {
+export function getOneNETPublicConfig() {
+  const config = getConfig();
   return {
-    water_flow: properties.flow?.value?.instant_flow ?? 0,
-    total_flow: properties.flow?.value?.total_flow ?? 0,
-    water_level: properties.water_level?.value ?? 0,
-    water_quality: properties.tds_value?.value ?? 0,
-    euler_angle_x: properties.angle?.value?.roll_angle ?? 0,
-    euler_angle_y: properties.angle?.value?.pitch_angle ?? 0,
-    euler_angle_z: properties.angle?.value?.yaw_angle ?? 0,
-    lora_status: properties.lora_comm_status?.value ? 'connected' : 'disconnected',
+    productId: config.productId,
+    deviceId: config.deviceId,
+    apiBase: config.apiBase || DEFAULT_API_BASE,
   };
 }
-
-export function verifyPushSignature(config: OneNETConfig, body: string, signature: string): boolean {
-  const { device_key } = config;
-  if (!device_key) {
-    return true;
-  }
-
-  const expectedSignature = crypto
-    .createHmac('md5', device_key)
-    .update(body)
-    .digest('base64');
-
-  return signature === expectedSignature;
-}
-
-export type { OneNETConfig, OneNETPropertyData };

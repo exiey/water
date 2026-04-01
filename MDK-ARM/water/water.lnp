@@ -1,0 +1,26 @@
+--cpu Cortex-M3
+"water\startup_stm32f103xb.o"
+"water\main.o"
+"water\gpio.o"
+"water\i2c.o"
+"water\usart.o"
+"water\stm32f1xx_it.o"
+"water\stm32f1xx_hal_msp.o"
+"water\stm32f1xx_hal_gpio_ex.o"
+"water\stm32f1xx_hal_i2c.o"
+"water\stm32f1xx_hal.o"
+"water\stm32f1xx_hal_rcc.o"
+"water\stm32f1xx_hal_rcc_ex.o"
+"water\stm32f1xx_hal_gpio.o"
+"water\stm32f1xx_hal_dma.o"
+"water\stm32f1xx_hal_cortex.o"
+"water\stm32f1xx_hal_pwr.o"
+"water\stm32f1xx_hal_flash.o"
+"water\stm32f1xx_hal_flash_ex.o"
+"water\stm32f1xx_hal_exti.o"
+"water\stm32f1xx_hal_uart.o"
+"water\system_stm32f1xx.o"
+--strict --scatter "water\water.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list "water.map" -o water\water.axf
