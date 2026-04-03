@@ -30,3 +30,7 @@ water\main.o: ../Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_uart.h
 water\main.o: ../Core/Inc/i2c.h
 water\main.o: ../Core/Inc/usart.h
 water\main.o: ../Core/Inc/gpio.h
+water\main.o: D:\code_environment\stm32_environment\Keil_v5\ARM\arm5_compiler\Bin\..\include\stdarg.h
+water\main.o: D:\code_environment\stm32_environment\Keil_v5\ARM\arm5_compiler\Bin\..\include\stdio.h
+water\main.o: D:\code_environment\stm32_environment\Keil_v5\ARM\arm5_compiler\Bin\..\include\string.h
+water\main.o: D:\code_environment\stm32_environment\Keil_v5\ARM\arm5_compiler\Bin\..\include\stdlib.h

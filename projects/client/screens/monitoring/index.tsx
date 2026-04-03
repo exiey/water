@@ -17,7 +17,7 @@ import { createStyles } from './styles';
 const BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'https://d34b1e3c-093a-43e0-a7ea-d0685d47e5f0.dev.coze.site';
 
 // 轮询间隔
-const POLLING_INTERVAL = 5000;
+const POLLING_INTERVAL = 2000;
 
 // 监测数据格式
 interface MonitoringData {

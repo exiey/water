@@ -77,6 +77,7 @@ static const char *ONENET_CLIENT_ID = "esp8266_01";
 static const char *ONENET_USERNAME = "Z7Y6GY5MYy";
 static const char *ONENET_PASSWORD = "version=2018-10-31&res=products%2FZ7Y6GY5MYy%2Fdevices%2Fesp8266_01&et=1806547441&method=md5&sign=NOhTuuLFQ%2FWnU1mv4kozxw%3D%3D";
 static const char *ONENET_PROPERTY_TOPIC = "$sys/Z7Y6GY5MYy/esp8266_01/thing/property/post";
+static const char *ONENET_PROPERTY_REPLY_TOPIC = "$sys/Z7Y6GY5MYy/esp8266_01/thing/property/post/reply";
 
 #define LORA_UART_NUM           UART_NUM_2
 #define LORA_UART_TX_PIN        GPIO_NUM_17
@@ -92,13 +93,13 @@ static esp_mqtt_client_handle_t s_mqtt_client = NULL;
 static bool s_mqtt_connected = false;
 
 typedef struct {
-    int water_level;
-    int tds_value;
-    int total_flow;
-    int instant_flow;
-    int pitch_angle;
-    int roll_angle;
-    int yaw_angle;
+    float water_level;
+    float tds_value;
+    float total_flow;
+    float instant_flow;
+    float pitch_angle;
+    float roll_angle;
+    float yaw_angle;
 } lora_sensor_packet_t;
 
 static void onenet_publish_test_payload(void)
@@ -124,6 +125,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     case MQTT_EVENT_CONNECTED:
         s_mqtt_connected = true;
         ESP_LOGI(TAG, "OneNET MQTT connected");
+        esp_mqtt_client_subscribe(s_mqtt_client, ONENET_PROPERTY_REPLY_TOPIC, 1);
         onenet_publish_test_payload();
         break;
     case MQTT_EVENT_DISCONNECTED:
@@ -172,22 +174,23 @@ static void lora_publish_packet_to_onenet(const lora_sensor_packet_t *packet)
     char payload[512];
     int payload_len = snprintf(payload, sizeof(payload),
                                "{\"id\":\"%lu\",\"version\":\"1.0\",\"params\":{"
-                               "\"angle\":{\"value\":{\"pitch_angle\":%d,\"roll_angle\":%d,\"yaw_angle\":%d}},"
-                               "\"flow\":{\"value\":{\"total_flow\":%d,\"instant_flow\":%d}},"
+                               "\"angle\":{\"value\":{\"pitch_angle\":%.2f,\"roll_angle\":%.2f,\"yaw_angle\":%.2f}},"
+                               "\"flow\":{\"value\":{\"total_flow\":%.3f,\"instant_flow\":%.3f}},"
                                "\"lora_comm_status\":{\"value\":true},"
-                               "\"tds_value\":{\"value\":%d},"
-                               "\"water_level\":{\"value\":%d}"
+                               "\"tds_value\":{\"value\":%.2f},"
+                               "\"water_level\":{\"value\":%.2f}"
                                "}}",
                                (unsigned long)esp_log_timestamp(),
-                               packet->pitch_angle, packet->roll_angle, packet->yaw_angle,
-                               packet->total_flow, packet->instant_flow,
-                               packet->tds_value, packet->water_level);
+                               (double)packet->pitch_angle, (double)packet->roll_angle, (double)packet->yaw_angle,
+                               (double)packet->total_flow, (double)packet->instant_flow,
+                               (double)packet->tds_value, (double)packet->water_level);
 
     if (payload_len <= 0 || payload_len >= sizeof(payload)) {
         ESP_LOGE(TAG, "failed to build OneNET payload from LoRa packet");
         return;
     }
 
+    ESP_LOGI(TAG, "OneNET payload: %s", payload);
     int msg_id = esp_mqtt_client_publish(s_mqtt_client, ONENET_PROPERTY_TOPIC, payload, 0, 1, 0);
     ESP_LOGI(TAG, "OneNET publish requested, msg_id=%d", msg_id);
 }
@@ -216,13 +219,7 @@ static void trim_in_place(char *text)
 
 static bool lora_parse_packet_line(char *line, lora_sensor_packet_t *packet)
 {
-    bool got_water_level = false;
-    bool got_tds_value = false;
-    bool got_total_flow = false;
-    bool got_instant_flow = false;
-    bool got_pitch = false;
-    bool got_roll = false;
-    bool got_yaw = false;
+    bool got_any_field = false;
 
     trim_in_place(line);
     if (line[0] == '\0') {
@@ -244,29 +241,29 @@ static bool lora_parse_packet_line(char *line, lora_sensor_packet_t *packet)
             char *value = separator + 1;
             trim_in_place(key);
             trim_in_place(value);
-            int parsed_value = atoi(value);
+            float parsed_value = strtof(value, NULL);
 
             if (strcmp(key, "water_level") == 0 || strcmp(key, "wl") == 0) {
                 packet->water_level = parsed_value;
-                got_water_level = true;
+                got_any_field = true;
             } else if (strcmp(key, "tds") == 0 || strcmp(key, "tds_value") == 0) {
                 packet->tds_value = parsed_value;
-                got_tds_value = true;
+                got_any_field = true;
             } else if (strcmp(key, "total_flow") == 0 || strcmp(key, "tf") == 0) {
                 packet->total_flow = parsed_value;
-                got_total_flow = true;
+                got_any_field = true;
             } else if (strcmp(key, "instant_flow") == 0 || strcmp(key, "if") == 0) {
                 packet->instant_flow = parsed_value;
-                got_instant_flow = true;
+                got_any_field = true;
             } else if (strcmp(key, "pitch") == 0 || strcmp(key, "pitch_angle") == 0 || strcmp(key, "p") == 0) {
                 packet->pitch_angle = parsed_value;
-                got_pitch = true;
+                got_any_field = true;
             } else if (strcmp(key, "roll") == 0 || strcmp(key, "roll_angle") == 0 || strcmp(key, "r") == 0) {
                 packet->roll_angle = parsed_value;
-                got_roll = true;
+                got_any_field = true;
             } else if (strcmp(key, "yaw") == 0 || strcmp(key, "yaw_angle") == 0 || strcmp(key, "y") == 0) {
                 packet->yaw_angle = parsed_value;
-                got_yaw = true;
+                got_any_field = true;
             } else {
                 ESP_LOGW(TAG, "unknown LoRa field: %s=%s", key, value);
             }
@@ -275,8 +272,7 @@ static bool lora_parse_packet_line(char *line, lora_sensor_packet_t *packet)
         token = strtok(NULL, ",");
     }
 
-    return got_water_level && got_tds_value && got_total_flow &&
-           got_instant_flow && got_pitch && got_roll && got_yaw;
+    return got_any_field;
 }
 
 static void lora_uart_init(void)
@@ -322,7 +318,7 @@ static void lora_uart_receive_task(void *arg)
                 if (lora_parse_packet_line(line_buf, &packet)) {
                     ESP_LOGI(TAG, "LoRa rx: %s", line_buf);
                     ESP_LOGI(TAG,
-                             "LoRa parsed: wl=%d tds=%d tf=%d if=%d pitch=%d roll=%d yaw=%d",
+                             "LoRa parsed: wl=%.2f tds=%.2f tf=%.3f if=%.3f pitch=%.2f roll=%.2f yaw=%.2f",
                              packet.water_level, packet.tds_value, packet.total_flow,
                              packet.instant_flow, packet.pitch_angle, packet.roll_angle, packet.yaw_angle);
                     lora_publish_packet_to_onenet(&packet);
@@ -348,7 +344,7 @@ static void lora_uart_receive_task(void *arg)
                     if (lora_parse_packet_line(line_buf, &packet)) {
                         ESP_LOGI(TAG, "LoRa rx: %s", line_buf);
                         ESP_LOGI(TAG,
-                                 "LoRa parsed: wl=%d tds=%d tf=%d if=%d pitch=%d roll=%d yaw=%d",
+                                 "LoRa parsed: wl=%.2f tds=%.2f tf=%.3f if=%.3f pitch=%.2f roll=%.2f yaw=%.2f",
                                  packet.water_level, packet.tds_value, packet.total_flow,
                                  packet.instant_flow, packet.pitch_angle, packet.roll_angle, packet.yaw_angle);
                         lora_publish_packet_to_onenet(&packet);

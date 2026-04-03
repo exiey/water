@@ -18,7 +18,7 @@ const clients = new Set<WebSocketClient>();
 let lastData: MonitoringSnapshot | null = null;
 
 // 轮询间隔（毫秒）
-const POLLING_INTERVAL = 3000; // 3秒轮询一次 OneNET
+const POLLING_INTERVAL = 1000; // 1秒轮询一次 OneNET
 
 /**
  * 初始化 WebSocket 服务器
@@ -181,7 +181,7 @@ async function pollAndBroadcast() {
         timestamp: Date.now(),
       });
 
-      console.log(`[WebSocket] 数据已推送: 水位=${data.water_level}m, 流量=${data.water_flow}m³/s`);
+      console.log(`[WebSocket] 数据已推送: 水位=${data.water_level}cm, 流量=${data.water_flow}m³/s`);
     }
   } catch (error) {
     console.error("[WebSocket] 轮询数据失败:", error);

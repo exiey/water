@@ -58,6 +58,13 @@ void Error_Handler(void);
 
 /* Private defines -----------------------------------------------------------*/
 
+#define PRESSURE_SCK_Pin GPIO_PIN_10
+#define PRESSURE_SCK_GPIO_Port GPIOB
+#define PRESSURE_OUT_Pin GPIO_PIN_11
+#define PRESSURE_OUT_GPIO_Port GPIOB
+#define LORA_AUX_Pin GPIO_PIN_12
+#define LORA_AUX_GPIO_Port GPIOB
+
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
