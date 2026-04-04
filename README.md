@@ -1,240 +1,175 @@
-# 大坝监测系统 (Dam Monitoring System)
+# 水坝监测系统
 
-一款基于 Expo + Express 的智能大坝监测移动应用，实现实时数据可视化、AI 智能分析和远程阈值配置。
+一个面向课程设计 / 原型验证的软硬件一体化项目：STM32 负责传感器采集，LoRa 负责远距离传输，ESP32-S3 作为网关接入 OneNET，`Expo + Express` 提供移动端监测界面、实时推送和 AI 分析能力。
 
-## 功能特性
+## 项目概览
 
-### 实时监测
-- 瞬时流量 / 累计流量实时曲线图
-- 水位高度实时监测
-- TDS 水质指标监测
-- 欧拉角（横滚/俯仰/偏航）姿态监测
-- LoRa 无线模块连通性状态
-- WebSocket 实时推送 + HTTP 轮询双保险机制
+- 实时显示流量、水位、TDS、水质姿态角和 LoRa 通信状态
+- 服务端通过 OneNET 拉取最新设备属性，并通过 WebSocket 推送到前端
+- 前端在 WebSocket 不可用时自动降级到 HTTP 轮询
+- 内置 AI 分析页，可结合当前监测数据生成中文分析结果
+- 项目已移除仓库中的硬编码敏感信息，适合继续整理后开源
 
-### AI 智能分析
-- 基于大语言模型的智能数据分析
-- SSE 流式输出，实时响应
-- 支持自然语言查询监测数据
-- 自动生成数据异常分析报告
+## 系统架构
 
-### 系统设置
-- 各参数阈值告警配置
-- 传感器校准参数设置
-- 下拉选择器快速切换参数
-
-## 技术栈
-
-| 类别 | 技术 |
-|------|------|
-| 前端框架 | Expo 54 + React Native |
-| 路由导航 | Expo Router (Tabs) |
-| 图表库 | react-native-gifted-charts |
-| 选择器 | @react-native-picker/picker |
-| SSE 客户端 | react-native-sse |
-| 后端框架 | Express.js |
-| 实时通信 | WebSocket (ws) |
-| AI 能力 | 大语言模型 SDK |
-| IoT 平台 | 中国移动物联网平台 (OneNET) |
-
-## 项目结构
-
+```text
+传感器 -> STM32 -> LoRa -> ESP32-S3 网关 -> OneNET -> Express Server -> Expo App
+                                                      |                |
+                                                      |                +-> WebSocket / HTTP
+                                                      +-> AI 分析上下文 -> SSE
 ```
-├── client/                          # Expo 前端
-│   ├── app/                         # Expo Router 路由
-│   │   ├── _layout.tsx              # 根布局
-│   │   ├── (tabs)/                  # Tab 导航
-│   │   │   ├── _layout.tsx          # Tab 布局
-│   │   │   ├── index.tsx            # 监测页（首页）
-│   │   │   ├── ai.tsx               # AI 分析页
-│   │   │   └── settings.tsx         # 设置页
-│   │   └── +not-found.tsx           # 404 页面
-│   ├── screens/                     # 页面组件实现
-│   │   ├── monitoring/              # 监测页面
-│   │   ├── ai/                      # AI 分析页面
-│   │   └── settings/                # 设置页面
-│   ├── components/                  # 公共组件
-│   ├── hooks/                       # 自定义 Hooks
-│   │   ├── useTheme.ts              # 主题 Hook
-│   │   └── useWebSocket.ts          # WebSocket Hook
-│   ├── constants/                   # 常量配置
-│   └── utils/                       # 工具函数
-│
-├── server/                          # Express 后端
-│   ├── src/
-│   │   ├── index.ts                 # 服务入口
-│   │   ├── websocket.ts             # WebSocket 服务
-│   │   ├── onenet.ts                # OneNET 平台对接
-│   │   └── routes/                  # API 路由
-│   │       ├── ai.ts                # AI 分析接口
-│   │       ├── thresholds.ts        # 阈值配置接口
-│   │       └── calibrations.ts      # 校准参数接口
-│   └── package.json
-│
-├── package.json                     # Monorepo 配置
+
+## 仓库结构
+
+```text
+.
+├── Core/                         STM32 工程源码
+├── Drivers/                      STM32 HAL / CMSIS
+├── MDK-ARM/                      Keil 工程
+├── station/                      ESP32-S3 网关工程（ESP-IDF）
+├── projects/
+│   ├── client/                   Expo / React Native 前端
+│   ├── server/                   Express 服务端
+│   └── .cozeproj/                本地开发脚本
+├── water.ioc                     STM32CubeMX 工程文件
 └── README.md
 ```
 
+## 主要功能
+
+### 移动端
+
+- 监测首页展示最新传感器数据与趋势图
+- AI 页面支持流式问答
+- 设置页可对接后续阈值和校准能力
+
+### 服务端
+
+- 从 OneNET 查询设备属性
+- 通过 WebSocket 广播最新监测数据
+- 提供 AI SSE 接口
+
+### 嵌入式链路
+
+- STM32 采集传感器数据
+- LoRa 传输采样结果
+- ESP32-S3 解析串口数据并上报 OneNET
+
 ## 快速开始
 
-### 环境要求
+### 1. 环境要求
 
-- Node.js >= 18
-- pnpm >= 8
-- Expo CLI
+- Node.js 18+
+- pnpm 9+
+- Expo / React Native 开发环境
+- ESP-IDF（如需编译 `station/`）
+- Keil 或 STM32CubeMX（如需编译 STM32 部分）
 
-### 安装依赖
+### 2. 前后端启动
 
 ```bash
-# 安装前端依赖
-cd client && npx expo install
-
-# 安装后端依赖
-cd server && pnpm install
+cd projects
+pnpm install
+pnpm dev
 ```
 
-### 配置环境变量
+默认情况下：
 
-在 `server/` 目录创建 `.env` 文件：
+- 前端开发地址：Expo 启动后按终端提示访问
+- 服务端地址：`http://localhost:9091`
+- WebSocket 地址：`ws://localhost:9091/ws/monitoring`
+
+你也可以分别启动：
+
+```bash
+cd projects/server
+pnpm install
+pnpm dev
+```
+
+```bash
+cd projects/client
+npm install
+npx expo start --web --clear
+```
+
+## 环境变量
+
+服务端示例配置见 `projects/server/.env.example`。
+
+常用变量：
 
 ```env
-# OneNET 平台配置
+PORT=9091
 ONENET_PRODUCT_ID=your_product_id
-ONENET_DEVICE_NAME=your_device_name
+ONENET_DEVICE_ID=your_device_id
 ONENET_ACCESS_KEY=your_access_key
-
-# AI 服务配置（可选）
-LLM_API_KEY=your_api_key
+ONENET_DEVICE_KEY=your_device_key
+ONENET_API_BASE=https://iot-api.heclouds.com
+LLM_API_KEY=your_llm_api_key
 ```
 
-### 启动开发服务
+前端示例配置见 `projects/client/.env.example`。
 
-```bash
-# 同时启动前后端
-npm run dev
-
-# 或分别启动
-cd server && pnpm run dev    # 后端 :9091
-cd client && npx expo start  # 前端
+```env
+EXPO_PUBLIC_BACKEND_BASE_URL=http://localhost:9091
 ```
 
-### 访问应用
+## 当前接口
 
-- 前端 Web: http://localhost:5000
-- 后端 API: http://localhost:9091
-- WebSocket: ws://localhost:9091/ws/monitoring
+### HTTP
 
-## API 接口
+- `GET /api/v1/health`：健康检查
+- `GET /api/v1/onenet/config`：返回公开 OneNET 配置
+- `GET /api/v1/monitoring/latest`：获取最近一次监测数据
+- `GET /api/v1/ai/history`：获取 AI 对话历史
+- `DELETE /api/v1/ai/history`：清空 AI 对话历史
+- `POST /api/v1/ai/chat`：SSE 流式 AI 分析
 
-### 监测数据
+### WebSocket
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/monitoring/latest` | 获取最新监测数据 |
-| GET | `/api/v1/monitoring?limit=20` | 获取历史数据列表 |
+- 路径：`/ws/monitoring`
+- 消息类型：`connected`、`sensor_data`、`pong`
 
-### AI 分析
+## 数据字段
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/ai/chat` | AI 对话（SSE 流式） |
-| GET | `/api/v1/ai/history` | 获取对话历史 |
-| DELETE | `/api/v1/ai/history` | 清空对话历史 |
+当前监测数据结构主要包括：
 
-### 阈值配置
+- `water_flow`：瞬时流量
+- `total_flow`：累计流量
+- `water_level`：水位
+- `water_quality`：TDS
+- `euler_angle_x / y / z`：姿态角
+- `lora_status`：LoRa 连接状态
+- `recorded_at`：记录时间
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/thresholds` | 获取所有阈值配置 |
-| PUT | `/api/v1/thresholds/:type` | 更新指定参数阈值 |
+## 嵌入式说明
 
-### 校准参数
+### STM32
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/calibrations` | 获取所有校准参数 |
-| PUT | `/api/v1/calibrations/:type` | 更新指定参数校准值 |
+- 主工程位于 `Core/`、`Drivers/` 和 `MDK-ARM/`
+- `water.ioc` 可用于 STM32CubeMX 重新生成配置
 
-## 数据流架构
+### ESP32-S3 网关
 
-```
-┌──────────┐    UART    ┌──────────┐    无线    ┌──────────┐    UART    ┌──────────┐
-│  传感器   │ ────────► │  STM32   │ ────────► │  LoRa    │ ────────► │  LoRa    │
-│  模组    │           │  主控    │           │  发射端  │           │  接收端  │
-└──────────┘           └──────────┘           └──────────┘           └─────┬────┘
-                                                                    │
-                                                              UART/SPI
-                                                                    │
-                                                                    ▼
-                                                             ┌──────────┐
-                                                             │ ESP32-S3 │
-                                                             │  网关    │
-                                                             └─────┬────┘
-                                                                   │
-                                                            WiFi/4G
-                                                                   │
-                                                                   ▼
-┌──────────┐     HTTP API      ┌──────────┐     WebSocket     ┌──────────┐
-│  Expo    │ ◄──────────────── │ Express  │ ◄──────────────── │ OneNET   │
-│  App     │                   │ Server   │                   │ 云平台   │
-└──────────┘                   └──────────┘                   └──────────┘
-     │
-     │ SSE
-     ▼
-┌──────────┐
-│  AI 分析 │
-│  (LLM)   │
-└──────────┘
-```
+- 工程位于 `station/`
+- 通过 `idf.py menuconfig` 配置 Wi-Fi 和 OneNET 参数
+- 已移除示例中的明文密码日志输出
 
-**数据传输链路：**
-1. **采集层**：传感器模组采集流量、水位、TDS、姿态角等数据
-2. **控制层**：STM32 主控芯片处理传感器数据
-3. **传输层**：LoRa 无线模块实现远距离数据传输
-4. **网关层**：ESP32-S3 接收 LoRa 数据并上传云端
-5. **云平台**：OneNET 物联网平台存储和管理数据
-6. **应用层**：Express 服务端 + Expo 移动端展示分析
+## 开源前安全建议
 
-## UI 设计
+- 不要提交 `.env`、设备 token、OneNET access key、Wi-Fi 密码
+- 即使工作区已删除敏感值，也要确认 Git 历史中没有旧凭据
+- 公开仓库前，建议轮换所有曾经写入代码或提交记录的 key / token
+- 编译产物、日志和本地 IDE 配置不建议纳入版本控制
 
-采用**纯白极简商务风**设计语言：
+## 后续可完善方向
 
-- 纯白背景 (#FFFFFF)
-- 近黑主色 (#111111)
-- 极细线条分割
-- 大留白排版
-- 清晰的信息层级
-
-## 开发指南
-
-### 静态检查
-
-```bash
-npm run lint          # 全量检查
-npm run lint:client   # 前端检查
-npm run lint:server   # 后端检查
-```
-
-### 路径别名
-
-前端使用 `@/` 别名指向 `client/` 目录：
-
-```tsx
-import { Screen } from '@/components/Screen';
-import { useTheme } from '@/hooks/useTheme';
-```
-
-### 依赖安装规范
-
-| 目录 | 命令 |
-|------|------|
-| client/ | `npx expo install <package>` |
-| server/ | `pnpm add <package>` |
+- 补齐阈值配置与校准接口
+- 增加历史数据持久化与查询
+- 加入用户鉴权和权限控制
+- 为网关和服务端增加测试与部署文档
 
 ## License
 
-MIT License
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request。
+MIT
