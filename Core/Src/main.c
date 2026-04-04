@@ -63,6 +63,7 @@ typedef struct
 #define HX710_SETTLE_SAMPLES       4U
 #define HX710_AVERAGE_SAMPLES      3U
 #define LORA_TX_TIMEOUT_MS         200U
+#define FLOW_PULSES_PER_LITER      450.0f
 
 /* USER CODE END PD */
 
@@ -81,6 +82,12 @@ static uint32_t s_mpu6050_last_error = 0U;
 static uint8_t s_hx710_initialized = 0U;
 static char s_lora_line[LORA_RX_BUFFER_SIZE];
 static uint8_t s_lora_line_len = 0U;
+static volatile uint32_t s_flow_pulse_count = 0U;
+static uint32_t s_flow_last_sample_pulse_count = 0U;
+static float s_total_flow_m3 = 0.0f;
+static float s_instant_flow_m3s = 0.0f;
+static GPIO_PinState s_flow_pin_last_state = GPIO_PIN_SET;
+static uint32_t s_flow_pin_transition_count = 0U;
 
 /* USER CODE END PV */
 
@@ -108,6 +115,9 @@ static float clamp_non_negative(float value);
 static int32_t estimate_pitch_angle(const mpu6050_data_t *data);
 static int32_t estimate_roll_angle(const mpu6050_data_t *data);
 static int32_t estimate_yaw_angle(const mpu6050_data_t *data);
+static void flow_sensor_poll_pin(void);
+static float flow_pulses_to_cubic_meters(uint32_t pulses);
+static void flow_sensor_update(uint32_t elapsed_ms);
 static void lora_send_packet_line(float water_level, float tds_value,
                                   float total_flow, float instant_flow,
                                   float pitch_angle, float roll_angle, float yaw_angle);
@@ -405,13 +415,44 @@ static int32_t estimate_yaw_angle(const mpu6050_data_t *data)
   return (int32_t)(clamp_to_i16(data->gyro_z) / 16);
 }
 
+static void flow_sensor_poll_pin(void)
+{
+  GPIO_PinState current_state = HAL_GPIO_ReadPin(FLOW_SENSOR_GPIO_Port, FLOW_SENSOR_Pin);
+
+  if (current_state != s_flow_pin_last_state) {
+    s_flow_pin_last_state = current_state;
+    s_flow_pin_transition_count++;
+  }
+}
+
+static float flow_pulses_to_cubic_meters(uint32_t pulses)
+{
+  return ((float)pulses / FLOW_PULSES_PER_LITER) / 1000.0f;
+}
+
+static void flow_sensor_update(uint32_t elapsed_ms)
+{
+  uint32_t total_pulses = s_flow_pulse_count;
+  uint32_t delta_pulses = total_pulses - s_flow_last_sample_pulse_count;
+  float elapsed_seconds = (float)elapsed_ms / 1000.0f;
+
+  s_flow_last_sample_pulse_count = total_pulses;
+  s_total_flow_m3 = flow_pulses_to_cubic_meters(total_pulses);
+
+  if (elapsed_seconds > 0.0f) {
+    s_instant_flow_m3s = flow_pulses_to_cubic_meters(delta_pulses) / elapsed_seconds;
+  } else {
+    s_instant_flow_m3s = 0.0f;
+  }
+}
+
 static void lora_send_packet_line(float water_level, float tds_value,
                                   float total_flow, float instant_flow,
                                   float pitch_angle, float roll_angle, float yaw_angle)
 {
   char packet[192];
   int length = snprintf(packet, sizeof(packet),
-                        "water_level=%.2f,tds=%.2f,total_flow=%.3f,instant_flow=%.3f,pitch=%.2f,roll=%.2f,yaw=%.2f\r\n",
+                        "water_level=%.2f,tds=%.2f,total_flow=%.6f,instant_flow=%.6f,pitch=%.2f,roll=%.2f,yaw=%.2f\r\n",
                         (double)water_level, (double)tds_value,
                         (double)total_flow, (double)instant_flow,
                         (double)pitch_angle, (double)roll_angle, (double)yaw_angle);
@@ -497,6 +538,7 @@ int main(void)
   i2c_scan_bus();
   s_mpu6050_online = mpu6050_init();
   hx710_init();
+  s_flow_pin_last_state = HAL_GPIO_ReadPin(FLOW_SENSOR_GPIO_Port, FLOW_SENSOR_Pin);
 
   debug_printf("\r\nwater board boot\r\n");
   debug_printf("USART1=115200 for debug, USART2=9600 for LoRa\r\n");
@@ -520,12 +562,12 @@ int main(void)
     static uint32_t last_print_tick = 0U;
     uint32_t now = HAL_GetTick();
 
+    flow_sensor_poll_pin();
     lora_poll_and_log();
 
     if ((now - last_print_tick) >= SENSOR_PRINT_PERIOD_MS) {
-      uint16_t pa0_raw = adc1_read_channel(0U);
+      uint32_t elapsed_ms = now - last_print_tick;
       uint16_t pa1_raw = adc1_read_channel(1U);
-      uint32_t pa0_mv = adc_to_millivolts(pa0_raw);
       uint32_t pa1_mv = adc_to_millivolts(pa1_raw);
       mpu6050_data_t mpu = {0};
       int32_t pressure_raw = 0;
@@ -539,11 +581,15 @@ int main(void)
       float yaw_angle = mpu_ready ? (float)estimate_yaw_angle(&mpu) : 0.0f;
       float water_level = pressure_ready ? clamp_non_negative((float)pressure_raw) : 0.0f;
       float tds_value = tds_ppm;
+      flow_sensor_update(elapsed_ms);
 
-      debug_printf("[SENSOR] t=%lu ms FLOW_PA0=%u (%lu mV, unplugged may float) TDS_AO=%u (%lu mV, %.1f ppm@25C) AUX=%u PRESS_OUT=%u PRESS_READY=%u PRESS_RAW=%ld\r\n",
+      debug_printf("[SENSOR] t=%lu ms FLOW_PIN=%u FLOW_EDGE=%lu FLOW_PULSE=%lu FLOW_TOTAL=%.6f m3 FLOW_INSTANT=%.6f m3/s TDS_AO=%u (%lu mV, %.1f ppm@25C) AUX=%u PRESS_OUT=%u PRESS_READY=%u PRESS_RAW=%ld\r\n",
                    (unsigned long)now,
-                   (unsigned int)pa0_raw,
-                   (unsigned long)pa0_mv,
+                   (unsigned int)(HAL_GPIO_ReadPin(FLOW_SENSOR_GPIO_Port, FLOW_SENSOR_Pin) == GPIO_PIN_SET),
+                   (unsigned long)s_flow_pin_transition_count,
+                   (unsigned long)s_flow_pulse_count,
+                   (double)s_total_flow_m3,
+                   (double)s_instant_flow_m3s,
                    (unsigned int)pa1_raw,
                    (unsigned long)pa1_mv,
                    (double)tds_ppm,
@@ -565,7 +611,8 @@ int main(void)
                      (unsigned long)s_mpu6050_last_error);
       }
 
-      lora_send_packet_line(water_level, tds_value, 0.0f, 0.0f, pitch_angle, roll_angle, yaw_angle);
+      lora_send_packet_line(water_level, tds_value, s_total_flow_m3, s_instant_flow_m3s,
+                            pitch_angle, roll_angle, yaw_angle);
 
       last_print_tick = now;
     }
@@ -613,6 +660,12 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == FLOW_SENSOR_Pin) {
+    s_flow_pulse_count++;
+  }
+}
 
 /* USER CODE END 4 */
 

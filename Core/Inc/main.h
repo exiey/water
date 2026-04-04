@@ -58,6 +58,8 @@ void Error_Handler(void);
 
 /* Private defines -----------------------------------------------------------*/
 
+#define FLOW_SENSOR_Pin GPIO_PIN_0
+#define FLOW_SENSOR_GPIO_Port GPIOA
 #define PRESSURE_SCK_Pin GPIO_PIN_10
 #define PRESSURE_SCK_GPIO_Port GPIOB
 #define PRESSURE_OUT_Pin GPIO_PIN_11
