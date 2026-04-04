@@ -72,12 +72,13 @@ static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_FAIL_BIT      BIT1
 
 static const char *TAG = "wifi station";
-static const char *ONENET_BROKER_URI = "mqtt://183.230.40.96:1883";
-static const char *ONENET_CLIENT_ID = "esp8266_01";
-static const char *ONENET_USERNAME = "Z7Y6GY5MYy";
-static const char *ONENET_PASSWORD = "version=2018-10-31&res=products%2FZ7Y6GY5MYy%2Fdevices%2Fesp8266_01&et=1806547441&method=md5&sign=NOhTuuLFQ%2FWnU1mv4kozxw%3D%3D";
-static const char *ONENET_PROPERTY_TOPIC = "$sys/Z7Y6GY5MYy/esp8266_01/thing/property/post";
-static const char *ONENET_PROPERTY_REPLY_TOPIC = "$sys/Z7Y6GY5MYy/esp8266_01/thing/property/post/reply";
+static const char *ONENET_BROKER_URI = CONFIG_ONENET_BROKER_URI;
+static const char *ONENET_CLIENT_ID = CONFIG_ONENET_DEVICE_ID;
+static const char *ONENET_USERNAME = CONFIG_ONENET_ACCESS_KEY;
+static const char *ONENET_PASSWORD = CONFIG_ONENET_TOKEN;
+
+#define ONENET_PROPERTY_TOPIC "$sys/" CONFIG_ONENET_PRODUCT_ID "/" CONFIG_ONENET_DEVICE_ID "/thing/property/post"
+#define ONENET_PROPERTY_REPLY_TOPIC "$sys/" CONFIG_ONENET_PRODUCT_ID "/" CONFIG_ONENET_DEVICE_ID "/thing/property/post/reply"
 
 #define LORA_UART_NUM           UART_NUM_2
 #define LORA_UART_TX_PIN        GPIO_NUM_17
@@ -175,7 +176,7 @@ static void lora_publish_packet_to_onenet(const lora_sensor_packet_t *packet)
     int payload_len = snprintf(payload, sizeof(payload),
                                "{\"id\":\"%lu\",\"version\":\"1.0\",\"params\":{"
                                "\"angle\":{\"value\":{\"pitch_angle\":%.2f,\"roll_angle\":%.2f,\"yaw_angle\":%.2f}},"
-                               "\"flow\":{\"value\":{\"total_flow\":%.3f,\"instant_flow\":%.3f}},"
+                               "\"flow\":{\"value\":{\"total_flow\":%.6f,\"instant_flow\":%.6f}},"
                                "\"lora_comm_status\":{\"value\":true},"
                                "\"tds_value\":{\"value\":%.2f},"
                                "\"water_level\":{\"value\":%.2f}"
@@ -318,7 +319,7 @@ static void lora_uart_receive_task(void *arg)
                 if (lora_parse_packet_line(line_buf, &packet)) {
                     ESP_LOGI(TAG, "LoRa rx: %s", line_buf);
                     ESP_LOGI(TAG,
-                             "LoRa parsed: wl=%.2f tds=%.2f tf=%.3f if=%.3f pitch=%.2f roll=%.2f yaw=%.2f",
+                             "LoRa parsed: wl=%.2f tds=%.2f tf=%.6f if=%.6f pitch=%.2f roll=%.2f yaw=%.2f",
                              packet.water_level, packet.tds_value, packet.total_flow,
                              packet.instant_flow, packet.pitch_angle, packet.roll_angle, packet.yaw_angle);
                     lora_publish_packet_to_onenet(&packet);
@@ -344,7 +345,7 @@ static void lora_uart_receive_task(void *arg)
                     if (lora_parse_packet_line(line_buf, &packet)) {
                         ESP_LOGI(TAG, "LoRa rx: %s", line_buf);
                         ESP_LOGI(TAG,
-                                 "LoRa parsed: wl=%.2f tds=%.2f tf=%.3f if=%.3f pitch=%.2f roll=%.2f yaw=%.2f",
+                                 "LoRa parsed: wl=%.2f tds=%.2f tf=%.6f if=%.6f pitch=%.2f roll=%.2f yaw=%.2f",
                                  packet.water_level, packet.tds_value, packet.total_flow,
                                  packet.instant_flow, packet.pitch_angle, packet.roll_angle, packet.yaw_angle);
                         lora_publish_packet_to_onenet(&packet);
@@ -444,11 +445,9 @@ void wifi_init_sta(void)
     /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
      * happened. */
     if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
-                 EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+        ESP_LOGI(TAG, "connected to ap SSID:%s", EXAMPLE_ESP_WIFI_SSID);
     } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
-                 EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+        ESP_LOGI(TAG, "Failed to connect to SSID:%s", EXAMPLE_ESP_WIFI_SSID);
     } else {
         ESP_LOGE(TAG, "UNEXPECTED EVENT");
     }

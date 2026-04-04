@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+
+# Keil / ARM build outputs
+MDK-ARM/.vscode/
+MDK-ARM/water/
+*.axf
+*.crf
+*.dep
+*.htm
+*.hex
+
+# Common local artifacts
+Thumbs.db
+.DS_Store

@@ -14,7 +14,7 @@ import { ThemedText } from '@/components/ThemedText';
 import { createStyles } from './styles';
 
 // 后端 URL
-const BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'https://d34b1e3c-093a-43e0-a7ea-d0685d47e5f0.dev.coze.site';
+const BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091';
 
 // 轮询间隔
 const POLLING_INTERVAL = 2000;
@@ -31,6 +31,16 @@ interface MonitoringData {
   euler_angle_z: number;
   lora_status: string;
   recorded_at: string;
+}
+
+function formatFlowRate(value?: number) {
+  if (value == null || !Number.isFinite(value)) return '--';
+  return value.toFixed(2);
+}
+
+function formatTotalFlow(value?: number) {
+  if (value == null || !Number.isFinite(value)) return '--';
+  return value.toFixed(1);
 }
 
 export default function MonitoringScreen() {
@@ -131,7 +141,7 @@ export default function MonitoringScreen() {
       flow: sortedData.map((item, index) => ({
         value: item.water_flow,
         label: index >= count - 3 ? item.recorded_at.slice(11, 16) : '',
-        dataPointText: index === count - 1 ? `${item.water_flow.toFixed(1)}` : '',
+        dataPointText: index === count - 1 ? formatFlowRate(item.water_flow) : '',
       })),
       level: sortedData.map((item, index) => ({
         value: item.water_level,
@@ -222,10 +232,10 @@ export default function MonitoringScreen() {
                 瞬时流量 FLOW RATE
               </ThemedText>
               <ThemedText variant="stat" color="#111111">
-                {latestData?.water_flow.toFixed(1) || '--'}
+                {formatFlowRate(latestData?.water_flow)}
               </ThemedText>
               <ThemedText variant="caption" color={theme.textSecondary}>
-                m3/s
+                L/min
               </ThemedText>
             </View>
             <View style={[styles.statCard, styles.flowCard]}>
@@ -233,10 +243,10 @@ export default function MonitoringScreen() {
                 累计流量 TOTAL
               </ThemedText>
               <ThemedText variant="stat" color="#111111">
-                {latestData?.total_flow?.toFixed(0) || '--'}
+                {formatTotalFlow(latestData?.total_flow)}
               </ThemedText>
               <ThemedText variant="caption" color={theme.textSecondary}>
-                m3
+                L
               </ThemedText>
             </View>
           </View>
@@ -358,7 +368,7 @@ export default function MonitoringScreen() {
 
           <View style={styles.chartContainer}>
             <ThemedText variant="labelSmall" color={theme.textMuted} style={styles.chartTitle}>
-              瞬时流量变化 (m3/s)
+              瞬时流量变化 (L/min)
             </ThemedText>
             <View style={styles.chart}>
               <LineChart

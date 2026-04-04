@@ -188,7 +188,7 @@ export function useWebSocket(url: string | null): UseWebSocketReturn {
  * 获取 WebSocket URL
  */
 export function getWebSocketUrl(): string | null {
-  const baseUrl = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'https://d34b1e3c-093a-43e0-a7ea-d0685d47e5f0.dev.coze.site';
+  const baseUrl = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091';
   
   // 转换为 WebSocket URL
   let wsUrl = baseUrl.replace(/^http/, 'ws');

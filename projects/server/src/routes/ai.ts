@@ -22,8 +22,8 @@ let messageIdCounter = 0;
 const SYSTEM_PROMPT = `你是大坝监测系统的AI智能分析助手。你的职责是：
 
 1. **数据分析**：分析监测数据，包括：
-   - 瞬时流量 (m³/s)
-   - 累计流量 (m³)
+   - 瞬时流量 (L/min)
+   - 累计流量 (L)
    - 水位 (cm)
    - TDS水质 (ppm)
    - 姿态角（欧拉角：roll/pitch/yaw）
@@ -78,8 +78,8 @@ function getMonitoringContext(): string {
   context += `- 数据时间: ${dataTime}\n`;
   context += `- 分析时间: ${currentTime}\n\n`;
   context += `### 监测数值\n`;
-  context += `- 瞬时流量: ${latest.water_flow} m³/s\n`;
-  context += `- 累计流量: ${latest.total_flow} m³\n`;
+  context += `- 瞬时流量: ${latest.water_flow} L/min\n`;
+  context += `- 累计流量: ${latest.total_flow} L\n`;
   context += `- 水位: ${latest.water_level} cm\n`;
   context += `- TDS水质: ${latest.water_quality} ppm\n`;
   context += `- 姿态角: Roll=${latest.euler_angle_x}°, Pitch=${latest.euler_angle_y}°, Yaw=${latest.euler_angle_z}°\n`;

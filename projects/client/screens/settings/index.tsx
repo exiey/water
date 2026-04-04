@@ -16,7 +16,7 @@ import { Screen } from '@/components/Screen';
 import { ThemedText } from '@/components/ThemedText';
 import { createStyles } from './styles';
 
-const EXPO_PUBLIC_BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'https://d34b1e3c-093a-43e0-a7ea-d0685d47e5f0.dev.coze.site';
+const EXPO_PUBLIC_BACKEND_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091';
 
 interface Threshold {
   id: number;
@@ -36,8 +36,8 @@ interface Calibration {
 
 // 参数类型配置 - 适配OneNET数据结构
 const PARAMETER_CONFIG = {
-  instant_flow: { name: '瞬时流量', unit: 'm³/s', icon: 'water' },
-  total_flow: { name: '累计流量', unit: 'm³', icon: 'droplet' },
+  instant_flow: { name: '瞬时流量', unit: 'L/min', icon: 'water' },
+  total_flow: { name: '累计流量', unit: 'L', icon: 'droplet' },
   water_level: { name: '水位', unit: 'cm', icon: 'arrows-up-down' },
   tds_value: { name: 'TDS值', unit: 'ppm', icon: 'flask' },
   roll_angle: { name: '横滚角', unit: '°', icon: 'rotate' },

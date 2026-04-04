@@ -181,7 +181,7 @@ async function pollAndBroadcast() {
         timestamp: Date.now(),
       });
 
-      console.log(`[WebSocket] 数据已推送: 水位=${data.water_level}cm, 流量=${data.water_flow}m³/s`);
+      console.log(`[WebSocket] 数据已推送: 水位=${data.water_level}cm, 流量=${data.water_flow}L/min`);
     }
   } catch (error) {
     console.error("[WebSocket] 轮询数据失败:", error);
@@ -196,10 +196,10 @@ function dataHasChanged(oldData: MonitoringSnapshot, newData: MonitoringSnapshot
   if (Math.abs(oldData.water_level - newData.water_level) > 0.1) return true;
   
   // 流量变化超过 0.1
-  if (Math.abs(oldData.water_flow - newData.water_flow) > 0.000001) return true;
+  if (Math.abs(oldData.water_flow - newData.water_flow) > 0.01) return true;
   
   // 累计流量变化
-  if (Math.abs(oldData.total_flow - newData.total_flow) > 0.0001) return true;
+  if (Math.abs(oldData.total_flow - newData.total_flow) > 0.1) return true;
   
   // TDS 变化超过 1
   if (Math.abs(oldData.water_quality - newData.water_quality) > 1) return true;

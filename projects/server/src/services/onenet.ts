@@ -3,14 +3,6 @@ import crypto from 'node:crypto';
 const DEFAULT_API_BASE = 'https://iot-api.heclouds.com';
 const TOKEN_VERSION = '2018-10-31';
 
-const DEFAULT_ONENET_CONFIG = {
-  productId: 'Z7Y6GY5MYy',
-  deviceId: 'esp8266_01',
-  accessKey: 'MWMJmQs1sbkfU7ENJdufrxOv3VHhHYlpK3vd7UWRRZU=',
-  deviceKey: 'akpwNWU1YXUzbFVOTGpybThaTktSaXNOSzBpQ2xZa3Y=',
-  apiBase: DEFAULT_API_BASE,
-} as const;
-
 type OneNETPropertyItem = {
   identifier: string;
   time?: number;
@@ -51,11 +43,11 @@ export type MonitoringSnapshot = {
 
 function getConfig(): OneNETConfig {
   return {
-    productId: process.env.ONENET_PRODUCT_ID || DEFAULT_ONENET_CONFIG.productId,
-    deviceId: process.env.ONENET_DEVICE_ID || DEFAULT_ONENET_CONFIG.deviceId,
-    accessKey: process.env.ONENET_ACCESS_KEY || DEFAULT_ONENET_CONFIG.accessKey,
-    deviceKey: process.env.ONENET_DEVICE_KEY || DEFAULT_ONENET_CONFIG.deviceKey,
-    apiBase: process.env.ONENET_API_BASE || DEFAULT_ONENET_CONFIG.apiBase,
+    productId: process.env.ONENET_PRODUCT_ID || '',
+    deviceId: process.env.ONENET_DEVICE_ID || '',
+    accessKey: process.env.ONENET_ACCESS_KEY || '',
+    deviceKey: process.env.ONENET_DEVICE_KEY || '',
+    apiBase: process.env.ONENET_API_BASE || DEFAULT_API_BASE,
   };
 }
 

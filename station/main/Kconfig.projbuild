@@ -40,6 +40,36 @@ menu "Example Configuration"
         help
             Set the Maximum retry to avoid station reconnecting to the AP unlimited when the AP is really inexistent.
 
+    config ONENET_BROKER_URI
+        string "OneNET broker URI"
+        default "mqtt://183.230.40.96:1883"
+        help
+            MQTT broker URI for the OneNET platform.
+
+    config ONENET_PRODUCT_ID
+        string "OneNET product ID"
+        default "your_product_id"
+        help
+            Product ID used to build the publish/subscribe topics.
+
+    config ONENET_DEVICE_ID
+        string "OneNET device ID"
+        default "your_device_id"
+        help
+            Device ID / client ID for the MQTT connection.
+
+    config ONENET_ACCESS_KEY
+        string "OneNET access key / username"
+        default "your_access_key"
+        help
+            Access key used as the MQTT username.
+
+    config ONENET_TOKEN
+        string "OneNET token / password"
+        default "your_onenet_token"
+        help
+            Token used as the MQTT password.
+
     choice ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD
         prompt "WiFi Scan auth mode threshold"
         default ESP_WIFI_AUTH_WPA2_PSK
