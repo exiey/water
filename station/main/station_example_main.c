@@ -30,8 +30,8 @@
    If you'd rather not, just change the below entries to strings with
    the config you want - ie #define EXAMPLE_WIFI_SSID "mywifissid"
 */
-#define EXAMPLE_ESP_WIFI_SSID      CONFIG_ESP_WIFI_SSID
-#define EXAMPLE_ESP_WIFI_PASS      CONFIG_ESP_WIFI_PASSWORD
+#define EXAMPLE_ESP_WIFI_SSID      "12345678"
+#define EXAMPLE_ESP_WIFI_PASS      "2444666668888888"
 #define EXAMPLE_ESP_MAXIMUM_RETRY  CONFIG_ESP_MAXIMUM_RETRY
 
 #if CONFIG_ESP_STATION_EXAMPLE_WPA3_SAE_PWE_HUNT_AND_PECK
@@ -72,13 +72,16 @@ static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_FAIL_BIT      BIT1
 
 static const char *TAG = "wifi station";
-static const char *ONENET_BROKER_URI = CONFIG_ONENET_BROKER_URI;
-static const char *ONENET_CLIENT_ID = CONFIG_ONENET_DEVICE_ID;
-static const char *ONENET_USERNAME = CONFIG_ONENET_ACCESS_KEY;
-static const char *ONENET_PASSWORD = CONFIG_ONENET_TOKEN;
+static const char *ONENET_BROKER_URI = "mqtt://183.230.40.96:1883";
+static const char *ONENET_CLIENT_ID = "esp8266_01";
+static const char *ONENET_USERNAME = "Z7Y6GY5MYy";
+static const char *ONENET_PASSWORD =
+    "version=2018-10-31&res=products%2FZ7Y6GY5MYy%2Fdevices%2Fesp8266_01"
+    "&et=1806547441&method=md5&sign=NOhTuuLFQ%2FWnU1mv4kozxw%3D%3D";
 
-#define ONENET_PROPERTY_TOPIC "$sys/" CONFIG_ONENET_PRODUCT_ID "/" CONFIG_ONENET_DEVICE_ID "/thing/property/post"
-#define ONENET_PROPERTY_REPLY_TOPIC "$sys/" CONFIG_ONENET_PRODUCT_ID "/" CONFIG_ONENET_DEVICE_ID "/thing/property/post/reply"
+#define ONENET_PROPERTY_TOPIC "$sys/Z7Y6GY5MYy/esp8266_01/thing/property/post"
+#define ONENET_PROPERTY_REPLY_TOPIC "$sys/Z7Y6GY5MYy/esp8266_01/thing/property/post/reply"
+#define ONENET_WATER_LEVEL_MAX_CM 300.0f
 
 #define LORA_UART_NUM           UART_NUM_2
 #define LORA_UART_TX_PIN        GPIO_NUM_17
@@ -150,6 +153,9 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
 static void onenet_mqtt_start(void)
 {
+    ESP_LOGI(TAG, "OneNET MQTT config: broker=%s client_id=%s username=%s",
+             ONENET_BROKER_URI, ONENET_CLIENT_ID, ONENET_USERNAME);
+
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = ONENET_BROKER_URI,
         .credentials.client_id = ONENET_CLIENT_ID,
@@ -172,6 +178,16 @@ static void lora_publish_packet_to_onenet(const lora_sensor_packet_t *packet)
         return;
     }
 
+    float water_level_to_report = packet->water_level;
+    if (water_level_to_report > ONENET_WATER_LEVEL_MAX_CM) {
+        ESP_LOGW(TAG, "water_level %.2f exceeds OneNET range, clamp to %.2f",
+                 (double)water_level_to_report, (double)ONENET_WATER_LEVEL_MAX_CM);
+        water_level_to_report = ONENET_WATER_LEVEL_MAX_CM;
+    } else if (water_level_to_report < 0.0f) {
+        ESP_LOGW(TAG, "water_level %.2f is negative, clamp to 0", (double)water_level_to_report);
+        water_level_to_report = 0.0f;
+    }
+
     char payload[512];
     int payload_len = snprintf(payload, sizeof(payload),
                                "{\"id\":\"%lu\",\"version\":\"1.0\",\"params\":{"
@@ -184,7 +200,7 @@ static void lora_publish_packet_to_onenet(const lora_sensor_packet_t *packet)
                                (unsigned long)esp_log_timestamp(),
                                (double)packet->pitch_angle, (double)packet->roll_angle, (double)packet->yaw_angle,
                                (double)packet->total_flow, (double)packet->instant_flow,
-                               (double)packet->tds_value, (double)packet->water_level);
+                               (double)packet->tds_value, (double)water_level_to_report);
 
     if (payload_len <= 0 || payload_len >= sizeof(payload)) {
         ESP_LOGE(TAG, "failed to build OneNET payload from LoRa packet");
@@ -389,7 +405,7 @@ static void event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
-void wifi_init_sta(void)
+static bool wifi_init_sta(void)
 {
     s_wifi_event_group = xEventGroupCreate();
 
@@ -446,10 +462,13 @@ void wifi_init_sta(void)
      * happened. */
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "connected to ap SSID:%s", EXAMPLE_ESP_WIFI_SSID);
+        return true;
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID:%s", EXAMPLE_ESP_WIFI_SSID);
+        return false;
     } else {
         ESP_LOGE(TAG, "UNEXPECTED EVENT");
+        return false;
     }
 }
 
@@ -470,7 +489,11 @@ void app_main(void)
     }
 
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
-    wifi_init_sta();
+    if (!wifi_init_sta()) {
+        ESP_LOGE(TAG, "Wi-Fi connection failed, skipping OneNET MQTT startup");
+        return;
+    }
+
     onenet_mqtt_start();
     lora_uart_init();
     xTaskCreate(lora_uart_receive_task, "lora_uart_receive", 4096, NULL, 5, NULL);

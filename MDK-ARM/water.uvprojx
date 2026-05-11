@@ -410,6 +410,11 @@
               <FilePath>../Core/Src/i2c.c</FilePath>
             </File>
             <File>
+              <FileName>Inf_HX710.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/Inf_HX710.c</FilePath>
+            </File>
+            <File>
               <FileName>usart.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/usart.c</FilePath>

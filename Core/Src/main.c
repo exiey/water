@@ -21,6 +21,7 @@
 #include "i2c.h"
 #include "usart.h"
 #include "gpio.h"
+#include "Inf_HX710.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -59,11 +60,18 @@ typedef struct
 #define SENSOR_PRINT_PERIOD_MS     1000U
 #define LORA_RX_BUFFER_SIZE        64U
 #define TDS_K_VALUE                1.0f
-#define HX710_READY_TIMEOUT_MS     1200U
-#define HX710_SETTLE_SAMPLES       4U
-#define HX710_AVERAGE_SAMPLES      3U
 #define LORA_TX_TIMEOUT_MS         200U
 #define FLOW_PULSES_PER_LITER      450.0f
+#define HX710_INVALID_STREAK_LIMIT  3U
+#define PRESSURE_ENABLE_BOOT_ZERO   1U
+#define PRESSURE_ENABLE_RUNTIME_ZERO 1U
+#define PRESSURE_BOOT_ZERO_SAMPLES  8U
+#define PRESSURE_FIXED_ZERO_OFFSET  0L
+/*
+ * Bring-up scale only. Keep this as an approximate factor until the hardware
+ * path is stable, then tune with measured water height.
+ */
+#define PRESSURE_LEVEL_CM_PER_COUNT 0.00025f
 
 /* USER CODE END PD */
 
@@ -79,14 +87,17 @@ static uint8_t s_mpu6050_online = 0U;
 static uint16_t s_mpu6050_addr = MPU6050_I2C_ADDR_LOW;
 static uint8_t s_mpu6050_who_am_i = 0U;
 static uint32_t s_mpu6050_last_error = 0U;
-static uint8_t s_hx710_initialized = 0U;
 static char s_lora_line[LORA_RX_BUFFER_SIZE];
 static uint8_t s_lora_line_len = 0U;
 static volatile uint32_t s_flow_pulse_count = 0U;
 static uint32_t s_flow_last_sample_pulse_count = 0U;
 static float s_total_flow_l = 0.0f;
 static float s_instant_flow_lpm = 0.0f;
-
+static int32_t s_pressure_last_valid_raw = PRESSURE_FIXED_ZERO_OFFSET;
+static uint8_t s_pressure_last_valid_ready = 0U;
+static uint8_t s_pressure_invalid_streak = 0U;
+static int32_t s_pressure_zero_offset = PRESSURE_FIXED_ZERO_OFFSET;
+static uint8_t s_pressure_zero_valid = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -102,12 +113,10 @@ static HAL_StatusTypeDef mpu6050_write_byte(uint16_t dev_addr, uint8_t reg, uint
 static HAL_StatusTypeDef mpu6050_read_bytes(uint16_t dev_addr, uint8_t reg, uint8_t *data, uint16_t size);
 static uint8_t mpu6050_init(void);
 static uint8_t mpu6050_read_data(mpu6050_data_t *data);
-static void hx710b_delay_short(void);
-static void hx710_reset(void);
-static uint8_t hx710_wait_ready(uint32_t timeout_ms);
-static uint8_t hx710_read_once(int32_t *raw_value);
-static void hx710_init(void);
 static uint8_t pressure_read_raw(int32_t *raw_value);
+static uint8_t pressure_capture_zero(void);
+static float pressure_raw_to_water_level_cm(int32_t raw_value);
+static void pressure_set_zero_offset(int32_t raw_value, const char *source);
 static int16_t clamp_to_i16(int32_t value);
 static float clamp_non_negative(float value);
 static int32_t estimate_pitch_angle(const mpu6050_data_t *data);
@@ -273,99 +282,38 @@ static uint8_t mpu6050_read_data(mpu6050_data_t *data)
   return 1U;
 }
 
-static void hx710b_delay_short(void)
-{
-  for (volatile uint32_t i = 0; i < 48U; ++i) {
-    __NOP();
-  }
-}
-
-static void hx710_reset(void)
-{
-  HAL_GPIO_WritePin(PRESSURE_SCK_GPIO_Port, PRESSURE_SCK_Pin, GPIO_PIN_SET);
-  HAL_Delay(1);
-  HAL_GPIO_WritePin(PRESSURE_SCK_GPIO_Port, PRESSURE_SCK_Pin, GPIO_PIN_RESET);
-  HAL_Delay(500);
-}
-
-static uint8_t hx710_wait_ready(uint32_t timeout_ms)
-{
-  uint32_t start_tick = HAL_GetTick();
-
-  while (HAL_GPIO_ReadPin(PRESSURE_OUT_GPIO_Port, PRESSURE_OUT_Pin) == GPIO_PIN_SET) {
-    if ((HAL_GetTick() - start_tick) >= timeout_ms) {
-      return 0U;
-    }
-  }
-
-  return 1U;
-}
-
-static uint8_t hx710_read_once(int32_t *raw_value)
-{
-  uint32_t value = 0U;
-
-  if (!hx710_wait_ready(HX710_READY_TIMEOUT_MS)) {
-    return 0U;
-  }
-
-  for (uint8_t i = 0U; i < 24U; ++i) {
-    HAL_GPIO_WritePin(PRESSURE_SCK_GPIO_Port, PRESSURE_SCK_Pin, GPIO_PIN_SET);
-    hx710b_delay_short();
-    value = (value << 1) | (HAL_GPIO_ReadPin(PRESSURE_OUT_GPIO_Port, PRESSURE_OUT_Pin) == GPIO_PIN_SET ? 1U : 0U);
-    HAL_GPIO_WritePin(PRESSURE_SCK_GPIO_Port, PRESSURE_SCK_Pin, GPIO_PIN_RESET);
-    hx710b_delay_short();
-  }
-
-  /* 25th pulse selects differential input, 10 Hz for the next conversion. */
-  HAL_GPIO_WritePin(PRESSURE_SCK_GPIO_Port, PRESSURE_SCK_Pin, GPIO_PIN_SET);
-  hx710b_delay_short();
-  HAL_GPIO_WritePin(PRESSURE_SCK_GPIO_Port, PRESSURE_SCK_Pin, GPIO_PIN_RESET);
-  hx710b_delay_short();
-
-  if ((value & 0x800000UL) != 0UL) {
-    value |= 0xFF000000UL;
-  }
-
-  *raw_value = (int32_t)value;
-  return 1U;
-}
-
-static void hx710_init(void)
-{
-  int32_t throwaway_raw = 0;
-
-  hx710_reset();
-
-  for (uint8_t i = 0U; i < HX710_SETTLE_SAMPLES; ++i) {
-    if (!hx710_read_once(&throwaway_raw)) {
-      s_hx710_initialized = 0U;
-      debug_printf("[HX710] settle timeout step=%u dout=%u after reset\r\n",
-                   (unsigned int)(i + 1U),
-                   (unsigned int)(HAL_GPIO_ReadPin(PRESSURE_OUT_GPIO_Port, PRESSURE_OUT_Pin) == GPIO_PIN_SET));
-      return;
-    }
-  }
-
-  s_hx710_initialized = 1U;
-  debug_printf("[HX710] ready after %u settle samples\r\n", (unsigned int)HX710_SETTLE_SAMPLES);
-}
-
 static uint8_t pressure_read_raw(int32_t *raw_value)
+{
+  if (Inf_HX710_ReadRaw(raw_value)) {
+    s_pressure_last_valid_raw = *raw_value;
+    s_pressure_last_valid_ready = 1U;
+    s_pressure_invalid_streak = 0U;
+    return 1U;
+  }
+
+  if (s_pressure_invalid_streak < 0xFFU) {
+    s_pressure_invalid_streak++;
+  }
+
+  if (s_pressure_last_valid_ready && s_pressure_invalid_streak < HX710_INVALID_STREAK_LIMIT) {
+    debug_printf("[PRESSURE] read timeout, reuse last raw=%ld streak=%u\r\n",
+                 (long)s_pressure_last_valid_raw,
+                 (unsigned int)s_pressure_invalid_streak);
+    *raw_value = s_pressure_last_valid_raw;
+    return 1U;
+  }
+
+  return 0U;
+}
+
+static uint8_t pressure_capture_zero(void)
 {
   int64_t sum = 0;
   uint8_t success_count = 0U;
   int32_t sample = 0;
 
-  if (!s_hx710_initialized) {
-    hx710_init();
-    if (!s_hx710_initialized) {
-      return 0U;
-    }
-  }
-
-  for (uint8_t i = 0U; i < HX710_AVERAGE_SAMPLES; ++i) {
-    if (!hx710_read_once(&sample)) {
+  for (uint8_t i = 0U; i < PRESSURE_BOOT_ZERO_SAMPLES; ++i) {
+    if (!pressure_read_raw(&sample)) {
       break;
     }
     sum += sample;
@@ -373,12 +321,33 @@ static uint8_t pressure_read_raw(int32_t *raw_value)
   }
 
   if (success_count == 0U) {
-    s_hx710_initialized = 0U;
+    s_pressure_zero_valid = 0U;
     return 0U;
   }
 
-  *raw_value = (int32_t)(sum / (int64_t)success_count);
+  pressure_set_zero_offset((int32_t)(sum / (int64_t)success_count), "boot");
+  debug_printf("[PRESSURE] boot zero samples=%u scale=%.6f cm/count\r\n",
+               (unsigned int)success_count,
+               (double)PRESSURE_LEVEL_CM_PER_COUNT);
+
   return 1U;
+}
+
+static void pressure_set_zero_offset(int32_t raw_value, const char *source)
+{
+  s_pressure_zero_offset = raw_value;
+  s_pressure_zero_valid = 1U;
+
+  debug_printf("[PRESSURE] %s zero captured raw=%ld\r\n",
+               source,
+               (long)s_pressure_zero_offset);
+}
+
+static float pressure_raw_to_water_level_cm(int32_t raw_value)
+{
+  int32_t baseline = s_pressure_zero_valid ? s_pressure_zero_offset : PRESSURE_FIXED_ZERO_OFFSET;
+  float corrected_counts = (float)(raw_value - baseline);
+  return clamp_non_negative(corrected_counts * PRESSURE_LEVEL_CM_PER_COUNT);
 }
 
 static int16_t clamp_to_i16(int32_t value)
@@ -468,9 +437,7 @@ static void lora_poll_and_log(void)
     if (byte == '\n') {
       if (s_lora_line_len > 0U) {
         s_lora_line[s_lora_line_len] = '\0';
-        debug_printf("[LORA] AUX=%u RX=\"%s\"\r\n",
-                     (unsigned int)(HAL_GPIO_ReadPin(LORA_AUX_GPIO_Port, LORA_AUX_Pin) == GPIO_PIN_SET),
-                     s_lora_line);
+        debug_printf("[LORA] RX=\"%s\"\r\n", s_lora_line);
         s_lora_line_len = 0U;
       }
       continue;
@@ -524,7 +491,13 @@ int main(void)
   adc1_init();
   i2c_scan_bus();
   s_mpu6050_online = mpu6050_init();
-  hx710_init();
+  Inf_HX710_Init();
+#if PRESSURE_ENABLE_BOOT_ZERO
+  if (!pressure_capture_zero()) {
+    debug_printf("[PRESSURE] boot zero capture failed, using fixed offset=%ld\r\n",
+                 (long)PRESSURE_FIXED_ZERO_OFFSET);
+  }
+#endif
 
   debug_printf("\r\nwater board boot\r\n");
   debug_printf("USART1=115200 for debug, USART2=9600 for LoRa\r\n");
@@ -556,7 +529,13 @@ int main(void)
       uint32_t pa1_mv = adc_to_millivolts(pa1_raw);
       mpu6050_data_t mpu = {0};
       int32_t pressure_raw = 0;
+      int32_t pressure_delta = 0;
       uint8_t pressure_ready = pressure_read_raw(&pressure_raw);
+#if PRESSURE_ENABLE_RUNTIME_ZERO
+      if (pressure_ready && !s_pressure_zero_valid) {
+        pressure_set_zero_offset(pressure_raw, "runtime");
+      }
+#endif
       uint8_t mpu_ready = s_mpu6050_online ? mpu6050_read_data(&mpu) : 0U;
       float water_temperature_c = 25.0f;
       float tds_voltage = (float)pa1_mv / 1000.0f;
@@ -564,11 +543,12 @@ int main(void)
       float pitch_angle = mpu_ready ? (float)estimate_pitch_angle(&mpu) : 0.0f;
       float roll_angle = mpu_ready ? (float)estimate_roll_angle(&mpu) : 0.0f;
       float yaw_angle = mpu_ready ? (float)estimate_yaw_angle(&mpu) : 0.0f;
-      float water_level = pressure_ready ? clamp_non_negative((float)pressure_raw) : 0.0f;
+      pressure_delta = pressure_ready ? (pressure_raw - (s_pressure_zero_valid ? s_pressure_zero_offset : PRESSURE_FIXED_ZERO_OFFSET)) : 0;
+      float water_level = pressure_ready ? pressure_raw_to_water_level_cm(pressure_raw) : 0.0f;
       float tds_value = tds_ppm;
       flow_sensor_update(elapsed_ms);
 
-      debug_printf("[SENSOR] t=%lu ms FLOW_PULSE=%lu FLOW_TOTAL=%.3f L FLOW_INSTANT=%.3f L/min TDS_AO=%u (%lu mV, %.1f ppm@25C) AUX=%u PRESS_OUT=%u PRESS_READY=%u PRESS_RAW=%ld\r\n",
+      debug_printf("[SENSOR] t=%lu ms FLOW_PULSE=%lu FLOW_TOTAL=%.3f L FLOW_INSTANT=%.3f L/min TDS_AO=%u (%lu mV, %.1f ppm@25C) PRESS_OUT=%u PRESS_READY=%u PRESS_RAW=%ld PRESS_ZERO_VALID=%u PRESS_ZERO=%ld PRESS_DELTA=%ld WATER_LEVEL=%.2f cm\r\n",
                    (unsigned long)now,
                    (unsigned long)s_flow_pulse_count,
                    (double)s_total_flow_l,
@@ -576,10 +556,13 @@ int main(void)
                    (unsigned int)pa1_raw,
                    (unsigned long)pa1_mv,
                    (double)tds_ppm,
-                   (unsigned int)(HAL_GPIO_ReadPin(LORA_AUX_GPIO_Port, LORA_AUX_Pin) == GPIO_PIN_SET),
                    (unsigned int)(HAL_GPIO_ReadPin(PRESSURE_OUT_GPIO_Port, PRESSURE_OUT_Pin) == GPIO_PIN_SET),
                    (unsigned int)pressure_ready,
-                   (long)pressure_raw);
+                   (long)pressure_raw,
+                   (unsigned int)s_pressure_zero_valid,
+                   (long)(s_pressure_zero_valid ? s_pressure_zero_offset : PRESSURE_FIXED_ZERO_OFFSET),
+                   (long)pressure_delta,
+                   (double)water_level);
 
       if (mpu_ready) {
         debug_printf("[MPU6050] addr=0x%02X who=0x%02X AX=%d AY=%d AZ=%d GX=%d GY=%d GZ=%d TEMP_RAW=%d\r\n",
